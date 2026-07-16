@@ -1,0 +1,181 @@
+<svg viewBox="0 0 1840 1154" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs>
+<marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L8,3 z" fill="#64748b"/></marker>
+<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.15"/></filter>
+</defs>
+<rect x="0" y="0" width="1840" height="1154" fill="#ffffff"/>
+<text x="920" y="34" text-anchor="middle" font-size="24" font-weight="700" fill="#0f172a">EcoLoop — Module 3 Entity Relationship Diagram</text>
+<text x="920" y="56" text-anchor="middle" font-size="13" fill="#64748b">17 tables · Supabase / PostgreSQL · arrows point from foreign key to referenced table</text>
+<rect x="432" y="63" width="14" height="14" rx="3" fill="#2563eb"/>
+<text x="452" y="74" font-size="12.5" fill="#334155">Identity / Profiles</text>
+<rect x="618" y="63" width="14" height="14" rx="3" fill="#059669"/>
+<text x="638" y="74" font-size="12.5" fill="#334155">Pickup logistics</text>
+<rect x="784" y="63" width="14" height="14" rx="3" fill="#d97706"/>
+<text x="804" y="74" font-size="12.5" fill="#334155">DIY community</text>
+<rect x="930" y="63" width="14" height="14" rx="3" fill="#7c3aed"/>
+<text x="950" y="74" font-size="12.5" fill="#334155">Wallet / Notifications / Support</text>
+<rect x="1208" y="63" width="14" height="14" rx="3" fill="#64748b"/>
+<text x="1228" y="74" font-size="12.5" fill="#334155">Admin-managed (no FK)</text>
+<line x1="30" y1="90" x2="1810" y2="90" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="770.0" y1="380.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="830.7" y="309.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="845.0" y="321.0" text-anchor="middle" font-size="10" fill="#64748b">1:1</text>
+<line x1="1070.0" y1="380.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="980.7" y="309.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="995.0" y="321.0" text-anchor="middle" font-size="10" fill="#64748b">1:1</text>
+<line x1="1370.0" y1="380.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1130.7" y="309.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1145.0" y="321.0" text-anchor="middle" font-size="10" fill="#64748b">1:1</text>
+<line x1="470.0" y1="380.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="680.7" y="309.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="695.0" y="321.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="1540.0" y1="156.0" x2="1200.0" y2="178.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1355.7" y="158.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1370.0" y="170.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="1540.0" y1="436.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1215.7" y="337.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1230.0" y="349.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="300.0" y1="156.0" x2="640.0" y2="178.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="455.7" y="158.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="470.0" y="170.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="170.0" y1="380.0" x2="170.0" y2="212.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="155.7" y="287.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="170.0" y="299.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="620.0" y1="670.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="668.9" y="454.0" width="202.2" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="770.0" y="466.0" text-anchor="middle" font-size="10" fill="#64748b">N:1 (customer/partner/industry)</text>
+<line x1="1520.0" y1="670.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1205.7" y="454.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1220.0" y="466.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="470.0" y1="980.0" x2="620.0" y2="848.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="530.7" y="905.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="545.0" y="917.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="770.0" y1="980.0" x2="620.0" y2="848.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="680.7" y="905.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="695.0" y="917.0" text-anchor="middle" font-size="10" fill="#64748b">1:1</text>
+<line x1="1070.0" y1="980.0" x2="1520.0" y2="826.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1280.7" y="894.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1295.0" y="906.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="1070.0" y1="980.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="980.7" y="609.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="995.0" y="621.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="1370.0" y1="980.0" x2="1520.0" y2="826.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1430.7" y="894.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1445.0" y="906.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<line x1="1370.0" y1="980.0" x2="920.0" y2="256.0" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1130.7" y="609.0" width="28.6" height="16" fill="#ffffff" fill-opacity="0.92" rx="3"/>
+<text x="1145.0" y="621.0" text-anchor="middle" font-size="10" fill="#64748b">N:1</text>
+<rect x="40" y="100" width="260" height="112" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 40 126 L 40 109 Q 40 100 49 100 L 291 100 Q 300 100 300 109 L 300 126 Z" fill="#7c3aed"/>
+<text x="52" y="118" font-size="13.5" font-weight="700" fill="#ffffff">support_tickets</text>
+<text x="52" y="143" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="52" y="165" font-size="11" fill="#1e293b">user_id (FK -> profiles)</text>
+<text x="52" y="187" font-size="11" fill="#1e293b">subject, category, description, status</text>
+<rect x="640" y="100" width="560" height="156" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 640 126 L 640 109 Q 640 100 649 100 L 1191 100 Q 1200 100 1200 109 L 1200 126 Z" fill="#2563eb"/>
+<text x="652" y="118" font-size="13.5" font-weight="700" fill="#ffffff">profiles</text>
+<text x="652" y="143" font-size="11" fill="#1e293b">id (PK, uuid) -> auth.users</text>
+<text x="652" y="165" font-size="11" fill="#1e293b">display_code</text>
+<text x="652" y="187" font-size="11" fill="#1e293b">role, status</text>
+<text x="652" y="209" font-size="11" fill="#1e293b">full_name, email, phone</text>
+<text x="652" y="231" font-size="11" fill="#1e293b">address, city, state, pincode</text>
+<rect x="1540" y="100" width="260" height="112" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 1540 126 L 1540 109 Q 1540 100 1549 100 L 1791 100 Q 1800 100 1800 109 L 1800 126 Z" fill="#7c3aed"/>
+<text x="1552" y="118" font-size="13.5" font-weight="700" fill="#ffffff">transactions</text>
+<text x="1552" y="143" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="1552" y="165" font-size="11" fill="#1e293b">user_id (FK -> profiles)</text>
+<text x="1552" y="187" font-size="11" fill="#1e293b">type, amount, points, status, txn_date</text>
+<rect x="40" y="380" width="260" height="112" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 40 406 L 40 389 Q 40 380 49 380 L 291 380 Q 300 380 300 389 L 300 406 Z" fill="#7c3aed"/>
+<text x="52" y="398" font-size="13.5" font-weight="700" fill="#ffffff">support_ticket_responses</text>
+<text x="52" y="423" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="52" y="445" font-size="11" fill="#1e293b">ticket_id (FK -> support_tickets)</text>
+<text x="52" y="467" font-size="11" fill="#1e293b">sender, response_text, responded_at</text>
+<rect x="340" y="380" width="260" height="112" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 340 406 L 340 389 Q 340 380 349 380 L 591 380 Q 600 380 600 389 L 600 406 Z" fill="#7c3aed"/>
+<text x="352" y="398" font-size="13.5" font-weight="700" fill="#ffffff">saved_addresses</text>
+<text x="352" y="423" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="352" y="445" font-size="11" fill="#1e293b">user_id (FK -> profiles)</text>
+<text x="352" y="467" font-size="11" fill="#1e293b">label, address, city, state, pincode, is_default</text>
+<rect x="640" y="380" width="260" height="112" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 640 406 L 640 389 Q 640 380 649 380 L 891 380 Q 900 380 900 389 L 900 406 Z" fill="#2563eb"/>
+<text x="652" y="398" font-size="13.5" font-weight="700" fill="#ffffff">customer_profiles</text>
+<text x="652" y="423" font-size="11" fill="#1e293b">user_id (PK, FK -> profiles)</text>
+<text x="652" y="445" font-size="11" fill="#1e293b">wallet_balance, reward_points</text>
+<text x="652" y="467" font-size="11" fill="#1e293b">total_earnings</text>
+<rect x="940" y="380" width="260" height="134" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 940 406 L 940 389 Q 940 380 949 380 L 1191 380 Q 1200 380 1200 389 L 1200 406 Z" fill="#2563eb"/>
+<text x="952" y="398" font-size="13.5" font-weight="700" fill="#ffffff">partner_profiles</text>
+<text x="952" y="423" font-size="11" fill="#1e293b">user_id (PK, FK -> profiles)</text>
+<text x="952" y="445" font-size="11" fill="#1e293b">vehicle_type, vehicle_number, license</text>
+<text x="952" y="467" font-size="11" fill="#1e293b">is_online, rating</text>
+<text x="952" y="489" font-size="11" fill="#1e293b">today/completed pickups, earnings</text>
+<rect x="1240" y="380" width="260" height="134" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 1240 406 L 1240 389 Q 1240 380 1249 380 L 1491 380 Q 1500 380 1500 389 L 1500 406 Z" fill="#2563eb"/>
+<text x="1252" y="398" font-size="13.5" font-weight="700" fill="#ffffff">industry_profiles</text>
+<text x="1252" y="423" font-size="11" fill="#1e293b">user_id (PK, FK -> profiles)</text>
+<text x="1252" y="445" font-size="11" fill="#1e293b">company_name, industry_type</text>
+<text x="1252" y="467" font-size="11" fill="#1e293b">gst_number, registration_number</text>
+<text x="1252" y="489" font-size="11" fill="#1e293b">waste_received_kg, deliveries_count</text>
+<rect x="1540" y="380" width="260" height="112" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 1540 406 L 1540 389 Q 1540 380 1549 380 L 1791 380 Q 1800 380 1800 389 L 1800 406 Z" fill="#7c3aed"/>
+<text x="1552" y="398" font-size="13.5" font-weight="700" fill="#ffffff">notifications</text>
+<text x="1552" y="423" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="1552" y="445" font-size="11" fill="#1e293b">user_id (FK -> profiles, nullable = broadcast)</text>
+<text x="1552" y="467" font-size="11" fill="#1e293b">role, title, message, type, is_read</text>
+<rect x="40" y="670" width="260" height="112" rx="9" fill="#f8fafc" stroke="#64748b" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 40 696 L 40 679 Q 40 670 49 670 L 291 670 Q 300 670 300 679 L 300 696 Z" fill="#64748b"/>
+<text x="52" y="688" font-size="13.5" font-weight="700" fill="#ffffff">pricing_rates</text>
+<text x="52" y="713" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="52" y="735" font-size="11" fill="#1e293b">category (unique)</text>
+<text x="52" y="757" font-size="11" fill="#1e293b">price_per_kg, last_updated</text>
+<rect x="340" y="670" width="560" height="178" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 340 696 L 340 679 Q 340 670 349 670 L 891 670 Q 900 670 900 679 L 900 696 Z" fill="#059669"/>
+<text x="352" y="688" font-size="13.5" font-weight="700" fill="#ffffff">pickup_requests</text>
+<text x="352" y="713" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="352" y="735" font-size="11" fill="#1e293b">customer_id (FK -> profiles)</text>
+<text x="352" y="757" font-size="11" fill="#1e293b">partner_id (FK -> profiles, nullable)</text>
+<text x="352" y="779" font-size="11" fill="#1e293b">assigned_industry_id (FK -> profiles, nullable)</text>
+<text x="352" y="801" font-size="11" fill="#1e293b">category, subcategory, condition, weight</text>
+<text x="352" y="823" font-size="11" fill="#1e293b">status, payment_status, amounts</text>
+<rect x="1240" y="670" width="560" height="156" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 1240 696 L 1240 679 Q 1240 670 1249 670 L 1791 670 Q 1800 670 1800 679 L 1800 696 Z" fill="#d97706"/>
+<text x="1252" y="688" font-size="13.5" font-weight="700" fill="#ffffff">diy_projects</text>
+<text x="1252" y="713" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="1252" y="735" font-size="11" fill="#1e293b">customer_id (FK -> profiles)</text>
+<text x="1252" y="757" font-size="11" fill="#1e293b">project_name, description, materials_used</text>
+<text x="1252" y="779" font-size="11" fill="#1e293b">status, likes, reward_earned</text>
+<text x="1252" y="801" font-size="11" fill="#1e293b">before_image, after_image</text>
+<rect x="40" y="980" width="260" height="112" rx="9" fill="#f8fafc" stroke="#64748b" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 40 1006 L 40 989 Q 40 980 49 980 L 291 980 Q 300 980 300 989 L 300 1006 Z" fill="#64748b"/>
+<text x="52" y="998" font-size="13.5" font-weight="700" fill="#ffffff">reward_products</text>
+<text x="52" y="1023" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="52" y="1045" font-size="11" fill="#1e293b">name, description, cost_points</text>
+<text x="52" y="1067" font-size="11" fill="#1e293b">image, category, available</text>
+<rect x="340" y="980" width="260" height="112" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 340 1006 L 340 989 Q 340 980 349 980 L 591 980 Q 600 980 600 989 L 600 1006 Z" fill="#059669"/>
+<text x="352" y="998" font-size="13.5" font-weight="700" fill="#ffffff">pickup_images</text>
+<text x="352" y="1023" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="352" y="1045" font-size="11" fill="#1e293b">pickup_id (FK -> pickup_requests)</text>
+<text x="352" y="1067" font-size="11" fill="#1e293b">image_url, created_at</text>
+<rect x="640" y="980" width="260" height="134" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 640 1006 L 640 989 Q 640 980 649 980 L 891 980 Q 900 980 900 989 L 900 1006 Z" fill="#059669"/>
+<text x="652" y="998" font-size="13.5" font-weight="700" fill="#ffffff">pickup_feedback</text>
+<text x="652" y="1023" font-size="11" fill="#1e293b">pickup_id (PK, FK -> pickup_requests)</text>
+<text x="652" y="1045" font-size="11" fill="#1e293b">customer_rating, customer_comment</text>
+<text x="652" y="1067" font-size="11" fill="#1e293b">partner_rating, partner_comment</text>
+<text x="652" y="1089" font-size="11" fill="#1e293b">industry_rating, industry_comment</text>
+<rect x="940" y="980" width="260" height="134" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 940 1006 L 940 989 Q 940 980 949 980 L 1191 980 Q 1200 980 1200 989 L 1200 1006 Z" fill="#d97706"/>
+<text x="952" y="998" font-size="13.5" font-weight="700" fill="#ffffff">diy_project_comments</text>
+<text x="952" y="1023" font-size="11" fill="#1e293b">id (PK)</text>
+<text x="952" y="1045" font-size="11" fill="#1e293b">project_id (FK -> diy_projects)</text>
+<text x="952" y="1067" font-size="11" fill="#1e293b">user_id (FK -> profiles)</text>
+<text x="952" y="1089" font-size="11" fill="#1e293b">user_name, comment_text</text>
+<rect x="1240" y="980" width="260" height="112" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.4" filter="url(#shadow)"/>
+<path d="M 1240 1006 L 1240 989 Q 1240 980 1249 980 L 1491 980 Q 1500 980 1500 989 L 1500 1006 Z" fill="#d97706"/>
+<text x="1252" y="998" font-size="13.5" font-weight="700" fill="#ffffff">diy_project_likes</text>
+<text x="1252" y="1023" font-size="11" fill="#1e293b">project_id + user_id (PK, composite)</text>
+<text x="1252" y="1045" font-size="11" fill="#1e293b">FK -> diy_projects</text>
+<text x="1252" y="1067" font-size="11" fill="#1e293b">FK -> profiles</text>
+</svg>
