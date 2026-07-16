@@ -1,6 +1,0 @@
-{
-  "name": "EcoLoop",
-  "description": "An interactive, responsive Smart Waste Management System linking Customers, Delivery Partners, Industries, and Admins to drive sustainable waste collection, automated billing, and recycling rewards.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
