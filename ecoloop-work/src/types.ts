@@ -1,5 +1,57 @@
 export type UserRole = 'public' | 'customer' | 'partner' | 'industry' | 'admin';
 
+// ============================================================================
+// MODULE 4 — AUTHENTICATION TYPES
+// ============================================================================
+
+/** Mirrors a row in `public.profiles` (extends Supabase's built-in auth.users). */
+export interface Profile {
+  id: string;
+  displayCode?: string | null;
+  role: Exclude<UserRole, 'public'>;
+  status: 'Active' | 'Suspended' | 'Pending Approval';
+  fullName: string;
+  email: string;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+  profilePicUrl?: string | null;
+  createdAt: string;
+}
+
+/** Fields collected on the public registration form, per role. */
+export interface SignUpPayload {
+  role: 'customer' | 'partner' | 'industry';
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  // partner-only
+  vehicleType?: string;
+  vehicleNumber?: string;
+  drivingLicense?: string;
+  aadhaarNumber?: string;
+  // industry-only
+  companyName?: string;
+  industryType?: string;
+  gstNumber?: string;
+  regNumber?: string;
+  contactPerson?: string;
+}
+
+/** A single, resolvable outcome from any auth action — avoids throwing across the UI boundary. */
+export interface AuthResult {
+  success: boolean;
+  error?: string;
+  needsEmailVerification?: boolean;
+}
+
 export type WasteCategory =
   | 'Paper'
   | 'Plastic'
@@ -202,4 +254,3 @@ export interface PickupFeedback {
   industryRating?: number;
   industryComment?: string;
 }
-

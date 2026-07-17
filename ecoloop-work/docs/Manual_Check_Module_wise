@@ -1,0 +1,35 @@
+Here's the full cumulative checklist — everything you should manually verify in your actual running app, from Module 1 through Module 5:
+
+**Module 1 — Project Setup**
+- `npm install` then `npm run dev` starts with no errors, and the app looks identical to before (no visual changes were made in Module 1).
+- `npx tsc --noEmit` and `npm run build` both succeed.
+
+**Module 2 — Supabase Setup**
+- Your `.env.local` has your real `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (not the placeholder values).
+- Open the browser console (F12) on page load — you should see the green `✅ Supabase connected successfully!` message, not a red error.
+- In the Supabase dashboard: Authentication → Providers shows Email enabled; Storage shows your 4 buckets (`avatars`, `pickup-photos`, `diy-images`, `verification-documents`).
+
+**Module 3 — Database Design**
+- Supabase Table Editor shows all 17 tables from the schema (profiles, customer_profiles, partner_profiles, industry_profiles, pricing_rates, pickup_requests, pickup_images, pickup_feedback, diy_projects, diy_project_comments, diy_project_likes, transactions, reward_products, notifications, saved_addresses, support_tickets, support_ticket_responses).
+- Every table shows RLS enabled (a small "RLS" badge/lock icon in Table Editor).
+- `pricing_rates` has your seeded categories with prices.
+
+**Module 4 — Authentication**
+- Register as a new Customer with a real-ish email + password ≥ 6 characters → confirm a matching row appears in `profiles` and `customer_profiles`.
+- Repeat once as Partner and once as Industry → confirm rows appear in `partner_profiles` / `industry_profiles` with `status = 'Pending Approval'`.
+- Log in with a registered account → confirm you land in the correct module for that role.
+- Log out → refresh the page → confirm you are **not** silently logged back in.
+- Log back in → refresh → confirm you **stay** logged in this time (session persistence).
+- Click "Forgot password?" → confirm you receive a real reset email → open the link → set a new password → confirm you can log in with it.
+- While logged in as Customer, use the bottom-right Role Switcher to try opening Partner/Admin → confirm you see that role's login screen, not real data.
+
+**Module 5 — Customer Dashboard**
+- Dashboard greeting shows your real name, not "Alex Rivera."
+- Wallet Balance and Carbon Points stat cards show your real `customer_profiles` values (likely ₹0 / 0 XP until you've done something), not the old mock numbers.
+- Pending Pickups count matches your real, non-completed/cancelled rows in `pickup_requests`.
+- Manually insert a `pickup_requests` row for yourself in Supabase → refresh → it appears in Recent Pickup History, the pending count updates, and the Waste Distribution chart shows a real slice.
+- Manually insert a `transactions` row (`type = 'Credit'`) → refresh → it appears in Latest Ledger and shifts the Monthly Earnings chart.
+- Manually insert a `notifications` row (your `user_id`, then one with `user_id = NULL` for broadcast) → refresh → both show in the bell panel; "Mark all read" clears the unread badge.
+- Click through every other Customer tab (Create Pickup, Pickups, Wallet, Rewards, DIY, Community, Settings, Support) → confirm they still look and work exactly as before — untouched by Module 5.
+
+Once all of these pass, your app is verified end-to-end through Module 5. Ready for **Module 6 — Pickup Management** whenever you are.

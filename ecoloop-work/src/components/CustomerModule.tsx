@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../context/DatabaseContext';
+import { useCustomerDashboard } from '../hooks/useCustomerDashboard';
+import { useCustomerPickups } from '../hooks/useCustomerPickups';
+import type { RealPickup } from '../services/pickupService';
 import { 
   CustomerItem, PickupRequest, DIYProject, Transaction, RewardProduct, 
   NotificationItem, WasteCategory, PickupStatus, SupportTicket, SavedAddress, PickupFeedback 
@@ -50,6 +53,41 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     supportTickets, setSupportTickets,
     feedbacks, setFeedbacks
   } = useDatabase();
+
+  // Module 5 (Customer Dashboard) — REAL Supabase-backed data.
+  // Prefixed with "dash" so it never collides with the mock
+  // `customer` / `pickups` / `transactions` / `notifications`
+  // above, which other tabs still use until their own modules
+  // (6, 7, 10...) wire them to real data too.
+  const {
+    loading: dashLoading,
+    stats: dashStats,
+    recentPickups: dashRecentPickups,
+    recentTransactions: dashRecentTransactions,
+    notifications: dashNotifications,
+    unreadCount: dashUnreadCount,
+    monthlyEarnings: dashMonthlyEarnings,
+    wasteDistribution: dashWasteDistribution,
+    pointsAccumulation: dashPointsAccumulation,
+    markAllNotificationsRead: markAllDashNotificationsRead,
+  } = useCustomerDashboard();
+
+  // Module 6 (Pickup Management) — REAL Supabase-backed data.
+  // Prefixed with "pk" so it never collides with the mock
+  // `pickups` above. This hook now fully owns the "Create
+  // Pickup" and "My Pickup Requests" tabs, plus the dashboard's
+  // active-pickup tracking banner.
+  const {
+    loading: pkLoading,
+    pickups: pkPickups,
+    pricingRates: pkPricingRates,
+    createPickup: pkCreatePickup,
+    updatePickup: pkUpdatePickup,
+    cancelPickup: pkCancelPickup,
+    submitFeedback: pkSubmitFeedback,
+  } = useCustomerPickups();
+
+  const CHART_COLORS = ['#059669', '#3b82f6', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#94a3b8'];
   
   const [globalSearch, setGlobalSearch] = useState('');
   const [language, setLanguage] = useState<'en' | 'hi' | 'mr'>('en');
@@ -98,7 +136,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   const [pickupFilter, setPickupFilter] = useState<string>('All'); // Represents Status
   const [pickupCategoryFilter, setPickupCategoryFilter] = useState<string>('All'); // Represents Material Category
   const [pickupSortOrder, setPickupSortOrder] = useState<'newest' | 'oldest'>('newest'); // Represents order
-  const [selectedPickup, setSelectedPickup] = useState<PickupRequest | null>(null);
+  const [selectedPickup, setSelectedPickup] = useState<RealPickup | null>(null);
 
   // Create Pickup Request Form State
   const [newPickup, setNewPickup] = useState({
@@ -113,10 +151,12 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     preferredTime: '10:00 AM - 12:00 PM',
     notes: '',
     specialInstructions: '',
-    imageFile: null as File | null,
-    imagePreview: ''
+    imageFiles: [] as File[],
+    imagePreviews: [] as string[]
   });
   const [createPickupSuccess, setCreatePickupSuccess] = useState(false);
+  const [createPickupError, setCreatePickupError] = useState('');
+  const [createPickupSubmitting, setCreatePickupSubmitting] = useState(false);
 
   // DIY Submission State
   const [newDIY, setNewDIY] = useState({
@@ -148,47 +188,54 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   // New Comment State for DIY Community Explorer
   const [newComment, setNewComment] = useState<Record<string, string>>({});
 
-  // Helper calculation for new pickup estimations
-  const currentPriceRate = INITIAL_PRICING_RATES.find(p => p.category === newPickup.category)?.pricePerKg || 0.10;
+  // Helper calculation for new pickup estimations — real rate from Module 6's
+  // pricing_rates table, falling back to the mock table only if it hasn't loaded yet.
+  const currentPriceRate =
+    pkPricingRates[newPickup.category] ??
+    INITIAL_PRICING_RATES.find(p => p.category === newPickup.category)?.pricePerKg ??
+    0.10;
   const estimatedPayout = (newPickup.estimatedWeight * currentPriceRate).toFixed(2);
 
   // Form Handlers
-  const handleCreatePickupSubmit = (e: React.FormEvent) => {
+  const handleCreatePickupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const reqId = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
-    const freshPickup: PickupRequest = {
-      id: reqId,
-      customerId: customer.id,
-      customerName: customer.name,
-      customerPhone: customer.phone,
-      category: newPickup.category,
-      subcategory: newPickup.subcategory || (WASTE_SUBCATEGORIES[newPickup.category]?.[0] || 'Unsorted Goods'),
-      condition: newPickup.condition,
-      estimatedWeight: newPickup.estimatedWeight,
-      quantity: newPickup.quantity,
-      pickupAddress: newPickup.address,
-      landmark: newPickup.landmark,
-      preferredDate: newPickup.preferredDate,
-      preferredTime: newPickup.preferredTime,
-      images: [newPickup.imagePreview || 'https://images.unsplash.com/photo-1588508065123-287b28e013da?auto=format&fit=crop&q=80&w=300'],
-      notes: newPickup.notes,
-      specialInstructions: newPickup.specialInstructions,
-      status: 'Pending',
-      estimatedAmount: parseFloat(estimatedPayout),
-      paymentStatus: 'Unpaid',
-      createdAt: new Date().toISOString()
-    };
+    setCreatePickupError('');
+    setCreatePickupSubmitting(true);
 
-    setPickups([freshPickup, ...pickups]);
+    const newId = await pkCreatePickup(
+      {
+        category: newPickup.category,
+        subcategory: newPickup.subcategory || (WASTE_SUBCATEGORIES[newPickup.category]?.[0] || 'Unsorted Goods'),
+        condition: newPickup.condition,
+        estimatedWeight: newPickup.estimatedWeight,
+        quantity: newPickup.quantity,
+        pickupAddress: newPickup.address,
+        landmark: newPickup.landmark,
+        preferredDate: newPickup.preferredDate,
+        preferredTime: newPickup.preferredTime,
+        notes: newPickup.notes,
+        specialInstructions: newPickup.specialInstructions,
+        estimatedAmount: parseFloat(estimatedPayout),
+      },
+      newPickup.imageFiles
+    );
+
+    setCreatePickupSubmitting(false);
+
+    if (newId === null) {
+      setCreatePickupError('Could not submit your pickup request. Please check your connection and try again.');
+      return;
+    }
+
     setCreatePickupSuccess(true);
-    
+
     // Add Notification
     const newNotif: NotificationItem = {
       id: `NTF-${Math.random()}`,
       userId: customer.id,
       role: 'customer',
       title: 'Pickup Requested',
-      message: `Your request ${reqId} for ${newPickup.category} has been submitted successfully.`,
+      message: `Your request REQ-${newId} for ${newPickup.category} has been submitted successfully.`,
       type: 'info',
       read: false,
       createdAt: new Date().toISOString()
@@ -198,29 +245,29 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     // Reset Form
     setTimeout(() => {
       setCreatePickupSuccess(false);
+      setNewPickup({ ...newPickup, imageFiles: [], imagePreviews: [], notes: '', specialInstructions: '', landmark: '' });
       setActiveTab('pickups');
     }, 2000);
   };
 
-  const handleCancelPickup = (id: string) => {
-    if (confirm("Are you sure you want to cancel this pickup request?")) {
-      setPickups(pickups.map(p => p.id === id ? { ...p, status: 'Cancelled' as PickupStatus } : p));
-      
-      // Update stats
-      const canceledPickup = pickups.find(p => p.id === id);
-      if (canceledPickup) {
-        const cancelNotif: NotificationItem = {
-          id: `NTF-${Math.random()}`,
-          userId: customer.id,
-          role: 'customer',
-          title: 'Pickup Cancelled',
-          message: `Request ${id} was successfully cancelled.`,
-          type: 'warning',
-          read: false,
-          createdAt: new Date().toISOString()
-        };
-        setNotifications([cancelNotif, ...notifications]);
-      }
+  const handleCancelPickup = async (id: number) => {
+    if (!confirm("Are you sure you want to cancel this pickup request?")) return;
+
+    const ok = await pkCancelPickup(id);
+    if (ok) {
+      const cancelNotif: NotificationItem = {
+        id: `NTF-${Math.random()}`,
+        userId: customer.id,
+        role: 'customer',
+        title: 'Pickup Cancelled',
+        message: `Request REQ-${id} was successfully cancelled.`,
+        type: 'warning',
+        read: false,
+        createdAt: new Date().toISOString()
+      };
+      setNotifications([cancelNotif, ...notifications]);
+    } else {
+      alert('Could not cancel this pickup. Please try again.');
     }
   };
 
@@ -351,18 +398,30 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   };
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+    const files = Array.from(e.target.files ?? []).slice(0, 5 - newPickup.imageFiles.length);
+    if (!files.length) return;
+
+    files.forEach((file) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setNewPickup({
-          ...newPickup,
-          imageFile: file,
-          imagePreview: reader.result as string
-        });
+        setNewPickup((prev) => ({
+          ...prev,
+          imageFiles: [...prev.imageFiles, file],
+          imagePreviews: [...prev.imagePreviews, reader.result as string]
+        }));
       };
       reader.readAsDataURL(file);
-    }
+    });
+
+    e.target.value = '';
+  };
+
+  const handleRemovePickupImage = (index: number) => {
+    setNewPickup((prev) => ({
+      ...prev,
+      imageFiles: prev.imageFiles.filter((_, i) => i !== index),
+      imagePreviews: prev.imagePreviews.filter((_, i) => i !== index)
+    }));
   };
 
   // Startup-grade handlers
@@ -385,8 +444,8 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   const handleExportPickupsCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Pickup ID,Category,Subcategory,Weight (Kg),Date,Status,Payout Amount (INR)\n";
-    pickups.filter(p => p.customerId === customer.id).forEach(p => {
-      csvContent += `${p.id},${p.category},${p.subcategory},${p.actualWeight || p.estimatedWeight},${p.preferredDate},${p.status},${(p.finalAmount || p.estimatedAmount).toFixed(2)}\n`;
+    pkPickups.forEach(p => {
+      csvContent += `REQ-${p.id},${p.category},${p.subcategory},${p.actualWeight || p.estimatedWeight},${p.preferredDate},${p.status},${(p.finalAmount || p.estimatedAmount).toFixed(2)}\n`;
     });
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -473,15 +532,15 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     setTicketReplyText('');
   };
 
-  const handleSubmitPickupReview = (e: React.FormEvent) => {
+  const handleSubmitPickupReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeRatingPickupId) return;
-    const newFeedback: PickupFeedback = {
-      pickupId: activeRatingPickupId,
-      customerRating: ratingValue,
-      customerComment: commentValue
-    };
-    setFeedbacks([newFeedback, ...feedbacks.filter(f => f.pickupId !== activeRatingPickupId)]);
+
+    const ok = await pkSubmitFeedback(Number(activeRatingPickupId), ratingValue, commentValue);
+    if (!ok) {
+      alert('Could not submit your feedback. Please try again.');
+      return;
+    }
     setRatingSuccess(true);
     
     // Add Notification
@@ -554,7 +613,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   };
 
 
-  const unreadNotifCount = notifications.filter(n => !n.read).length;
+  const unreadNotifCount = dashUnreadCount;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
@@ -588,7 +647,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
         <div className="bg-brand-950 p-3 rounded-xl border border-brand-800 flex items-center gap-3 mb-6">
           <img className="w-10 h-10 rounded-full object-cover border border-brand-700" src={customer.profilePic} alt="profile" />
           <div className="min-w-0">
-            <h4 className="text-xs font-bold text-white truncate">{customer.name}</h4>
+            <h4 className="text-xs font-bold text-white truncate">{dashStats?.fullName ?? customer.name}</h4>
             <span className="inline-flex items-center gap-1 text-[9px] text-brand-300 font-bold font-mono">
               <Award className="w-3 h-3" /> Gold Tier
             </span>
@@ -786,7 +845,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <h1 className="text-xl sm:text-2xl font-display font-extrabold text-slate-900">Sustainability Workspace</h1>
-                <p className="text-xs text-slate-500 mt-1">Hello, {customer.name}! Track your recycling metrics, logs, and eco dividends.</p>
+                <p className="text-xs text-slate-500 mt-1">Hello, {dashStats?.fullName ?? '...'}! Track your recycling metrics, logs, and eco dividends.</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setActiveTab('create-pickup')} className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition shadow-md shadow-brand-100">
@@ -800,14 +859,14 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
               <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Wallet Balance</span>
                 <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">₹{customer.walletBalance.toFixed(2)}</p>
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">₹{(dashStats?.walletBalance ?? 0).toFixed(2)}</p>
                   <button onClick={() => setActiveTab('wallet')} className="text-[10px] text-brand-600 font-bold hover:underline flex items-center gap-1 mt-1">Manage Payouts <ChevronRight className="w-3 h-3" /></button>
                 </div>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Carbon Points</span>
                 <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-brand-600">{customer.rewardPoints} XP</p>
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-brand-600">{dashStats?.rewardPoints ?? 0} XP</p>
                   <button onClick={() => setActiveTab('rewards')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Browse Reward Store <ChevronRight className="w-3 h-3" /></button>
                 </div>
               </div>
@@ -821,16 +880,17 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
               <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Pending Pickups</span>
                 <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{pickups.filter(p => p.status !== 'Completed' && p.status !== 'Cancelled').length}</p>
+                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{dashStats?.pendingPickupsCount ?? 0}</p>
                   <button onClick={() => setActiveTab('pickups')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Track Requests <ChevronRight className="w-3 h-3" /></button>
                 </div>
               </div>
             </div>
 
-            {/* ACTIVE PICKUPS MAP / TRACKING BANNER */}
-            {pickups.some(p => p.status === 'Assigned' || p.status === 'In-Transit' || p.status === 'Arrived') && (
+            {/* ACTIVE PICKUPS MAP / TRACKING BANNER — Module 6: real data, only appears once a
+                pickup has a real partner_id assigned (still done manually until Module 13 exists) */}
+            {pkPickups.some(p => p.status === 'Assigned' || p.status === 'In-Transit' || p.status === 'Arrived') && (
               (() => {
-                const activeP = pickups.find(p => p.status === 'Assigned' || p.status === 'In-Transit' || p.status === 'Arrived')!;
+                const activeP = pkPickups.find(p => p.status === 'Assigned' || p.status === 'In-Transit' || p.status === 'Arrived')!;
                 return (
                   <div className="bg-indigo-900 text-white p-5 rounded-2xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 shadow-xl">
                     <div className="flex items-start gap-3.5">
@@ -840,8 +900,8 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                           <span className="bg-indigo-800 text-indigo-200 text-[9px] font-mono font-bold px-2 py-0.5 rounded-full uppercase">Live Tracking Active</span>
                           <span className="text-[10px] text-indigo-300 font-mono font-bold">REQ: {activeP.id}</span>
                         </div>
-                        <h3 className="text-sm font-bold mt-1">Driver Daniel Cruz is on the way!</h3>
-                        <p className="text-xs text-indigo-200 mt-0.5">Estimated arrival: <strong className="text-white">10 - 15 minutes</strong></p>
+                        <h3 className="text-sm font-bold mt-1">{activeP.partnerName ? `Driver ${activeP.partnerName} is on the way!` : 'A partner has been assigned to your pickup!'}</h3>
+                        <p className="text-xs text-indigo-200 mt-0.5">Status: <strong className="text-white">{activeP.status}</strong></p>
                       </div>
                     </div>
                     <button onClick={() => { setSelectedPickup(activeP); setActiveTab('pickups'); }} className="bg-white text-indigo-900 hover:bg-slate-100 text-xs font-bold px-4 py-2 rounded-xl self-start lg:self-center transition shadow-sm shrink-0">
@@ -899,13 +959,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                 <div className="h-40 w-full text-xs">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={[
-                        { month: 'Mar', val: 240 },
-                        { month: 'Apr', val: 380 },
-                        { month: 'May', val: 190 },
-                        { month: 'Jun', val: 510 },
-                        { month: 'Jul', val: 420 },
-                      ]}
+                      data={dashMonthlyEarnings.map(d => ({ month: d.month, val: d.amount }))}
                       margin={{ top: 5, right: 5, left: -25, bottom: 0 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -929,57 +983,45 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   <p className="text-[10px] text-slate-500 mt-0.5">Breakdown of submitted recycling items by weight (Kg).</p>
                 </div>
                 <div className="h-40 flex items-center justify-around gap-2 text-xs">
-                  <div className="w-1/2 h-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={[
-                            { name: 'Paper', value: 45, color: '#059669' },
-                            { name: 'Plastic', value: 30, color: '#3b82f6' },
-                            { name: 'E-Waste', value: 15, color: '#f59e0b' },
-                            { name: 'Others', value: 10, color: '#94a3b8' },
-                          ]}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={25}
-                          outerRadius={40}
-                          paddingAngle={3}
-                          dataKey="value"
-                        >
-                          {[
-                            { name: 'Paper', value: 45, color: '#059669' },
-                            { name: 'Plastic', value: 30, color: '#3b82f6' },
-                            { name: 'E-Waste', value: 15, color: '#f59e0b' },
-                            { name: 'Others', value: 10, color: '#94a3b8' },
-                          ].map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '10px' }}
-                          formatter={(value) => [`${value}%`, 'Ratio']}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex flex-col gap-1.5 justify-center w-1/2">
-                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-700">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block shrink-0" />
-                      <span>Paper (45%)</span>
+                  {dashWasteDistribution.length === 0 ? (
+                    <div className="w-full h-full flex items-center justify-center text-center text-[10px] text-slate-400 px-4">
+                      No pickups yet — this chart fills in once your first pickup is recorded.
                     </div>
-                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-700">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block shrink-0" />
-                      <span>Plastic (30%)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-700">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shrink-0" />
-                      <span>E-Waste (15%)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-700">
-                      <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block shrink-0" />
-                      <span>Others (10%)</span>
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="w-1/2 h-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={dashWasteDistribution.map(w => ({ name: w.category, value: w.percent }))}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={25}
+                              outerRadius={40}
+                              paddingAngle={3}
+                              dataKey="value"
+                            >
+                              {dashWasteDistribution.map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '10px' }}
+                              formatter={(value) => [`${value}%`, 'Ratio']}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex flex-col gap-1.5 justify-center w-1/2">
+                        {dashWasteDistribution.map((w, index) => (
+                          <div key={w.category} className="flex items-center gap-1.5 text-[9px] font-bold text-slate-700">
+                            <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
+                            <span>{w.category} ({w.percent}%)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -992,12 +1034,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                 <div className="h-40 w-full text-xs">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
-                      data={[
-                        { week: 'Week 1', points: 150 },
-                        { week: 'Week 2', points: 320 },
-                        { week: 'Week 3', points: 480 },
-                        { week: 'Week 4', points: 720 },
-                      ]}
+                      data={dashPointsAccumulation}
                       margin={{ top: 5, right: 5, left: -25, bottom: 0 }}
                     >
                       <defs>
@@ -1030,20 +1067,23 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   <button onClick={() => setActiveTab('pickups')} className="text-[10px] font-bold text-brand-600 hover:underline">View All</button>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {pickups.slice(0, 3).map((p) => (
+                  {dashRecentPickups.length === 0 && (
+                    <p className="text-[10px] text-slate-400 text-center py-4">No pickups yet — create your first one above.</p>
+                  )}
+                  {dashRecentPickups.map((p) => (
                     <div key={p.id} className="p-3 border border-slate-100 rounded-xl hover:border-slate-200 flex items-center justify-between gap-3 bg-slate-50/50 transition">
                       <div className="flex items-center gap-3">
                         <span className="text-lg">♻️</span>
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-bold text-slate-800">{p.category}</span>
-                            <span className="text-[9px] font-mono text-slate-400">({p.id})</span>
+                            <span className="text-[9px] font-mono text-slate-400">(#{p.id})</span>
                           </div>
                           <p className="text-[10px] text-slate-500">{p.preferredDate} · {p.estimatedWeight} Kg</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className="block font-mono text-xs font-bold text-slate-800">₹{(p.finalAmount || p.estimatedAmount).toFixed(2)}</span>
+                        <span className="block font-mono text-xs font-bold text-slate-800">₹{(p.finalAmount ?? p.estimatedAmount).toFixed(2)}</span>
                         <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full mt-1 ${
                           p.status === 'Completed' ? 'bg-emerald-50 text-emerald-700' :
                           p.status === 'Cancelled' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
@@ -1064,7 +1104,10 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                     <button onClick={() => setActiveTab('wallet')} className="text-[10px] font-bold text-brand-600 hover:underline">View Ledger</button>
                   </div>
                   <div className="flex flex-col gap-2">
-                    {transactions.slice(0, 3).map((tx) => (
+                    {dashRecentTransactions.length === 0 && (
+                      <p className="text-[10px] text-slate-400 text-center py-4">No wallet activity yet.</p>
+                    )}
+                    {dashRecentTransactions.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-0">
                         <div className="flex items-center gap-2">
                           {tx.type === 'Credit' ? <ArrowUpRight className="w-4 h-4 text-emerald-500" /> : <ArrowDownLeft className="w-4 h-4 text-slate-500" />}
@@ -1183,18 +1226,22 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   </div>
                 </div>
 
-                {/* Upload Waste Photo */}
+                {/* Upload Waste Photos — real uploads to the pickup-photos storage bucket (Module 6) */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">Upload Waste Materials Photo (Optional)</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Upload Waste Materials Photos (Optional, up to 5)</label>
                   <div className="border-2 border-dashed border-slate-200 hover:border-brand-500 rounded-xl p-4 text-center cursor-pointer flex flex-col items-center gap-1.5 bg-slate-50/50">
                     <Upload className="w-5 h-5 text-slate-400" />
-                    <span className="text-[10px] font-bold text-slate-700">Click to upload photo for driver pre-audit</span>
-                    <input type="file" accept="image/*" onChange={handleImageFileChange} className="hidden" id="pickup-img-file" />
-                    <label htmlFor="pickup-img-file" className="text-[9px] text-slate-400 cursor-pointer">Support JPG, PNG up to 4MB</label>
-                    {newPickup.imagePreview && (
-                      <div className="mt-2 relative">
-                        <img className="w-24 h-16 object-cover rounded-lg border border-slate-200 shadow-xs" src={newPickup.imagePreview} alt="upload preview" />
-                        <button type="button" onClick={() => setNewPickup({ ...newPickup, imagePreview: '' })} className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-0.5"><X className="w-3 h-3" /></button>
+                    <span className="text-[10px] font-bold text-slate-700">Click to upload photos for driver pre-audit</span>
+                    <input type="file" accept="image/*" multiple onChange={handleImageFileChange} className="hidden" id="pickup-img-file" disabled={newPickup.imageFiles.length >= 5} />
+                    <label htmlFor="pickup-img-file" className="text-[9px] text-slate-400 cursor-pointer">Support JPG, PNG up to 4MB each</label>
+                    {newPickup.imagePreviews.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2 justify-center">
+                        {newPickup.imagePreviews.map((preview, idx) => (
+                          <div key={idx} className="relative">
+                            <img className="w-24 h-16 object-cover rounded-lg border border-slate-200 shadow-xs" src={preview} alt={`upload preview ${idx + 1}`} />
+                            <button type="button" onClick={() => handleRemovePickupImage(idx)} className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-0.5"><X className="w-3 h-3" /></button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1280,8 +1327,12 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   </div>
                 </div>
 
-                <button type="submit" className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-3 rounded-xl transition shadow-lg shadow-brand-100 text-center">
-                  Confirm and Book Pickup Request
+                {createPickupError && (
+                  <p className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 text-center">{createPickupError}</p>
+                )}
+
+                <button type="submit" disabled={createPickupSubmitting} className="bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold py-3 rounded-xl transition shadow-lg shadow-brand-100 text-center">
+                  {createPickupSubmitting ? 'Submitting...' : 'Confirm and Book Pickup Request'}
                 </button>
               </form>
             )}
@@ -1299,7 +1350,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   <button onClick={() => setSelectedPickup(null)} className="text-xs font-bold text-slate-400 hover:text-slate-900 flex items-center gap-1">
                     <ArrowLeft className="w-4 h-4" /> Back to List
                   </button>
-                  <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">REQUEST ID: {selectedPickup.id}</span>
+                  <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">REQUEST ID: REQ-{selectedPickup.id}</span>
                 </div>
 
                 {/* Map Simulation for active partners */}
@@ -1308,9 +1359,13 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                     <div className="absolute inset-0 bg-slate-950 opacity-90 p-4 font-mono text-[9px] text-emerald-400 overflow-hidden flex flex-col gap-1 select-none">
                       <p className="text-brand-400 font-bold uppercase">Map Simulation Engine active...</p>
                       <p>ROUTE: {selectedPickup.pickupAddress} --{">"} Industrial Hub</p>
-                      <p>PARTNER: {selectedPickup.partnerName} · vehicle: {selectedPickup.partnerPhone}</p>
-                      <p>COORDINATES: lat: 37.7749, lng: -122.4194</p>
-                      <p>GPS RE-CALCULATING... DRIVER ETA: 12 MINUTES</p>
+                      <p>PARTNER: {selectedPickup.partnerName ?? 'Unassigned'} · contact: {selectedPickup.partnerPhone ?? 'N/A'}</p>
+                      <p>
+                        COORDINATES: {selectedPickup.partnerLocation
+                          ? `lat: ${selectedPickup.partnerLocation.lat}, lng: ${selectedPickup.partnerLocation.lng}`
+                          : 'not broadcast yet by the partner app'}
+                      </p>
+                      <p>Live GPS pushes from the partner app arrive once Module 13 is wired.</p>
                     </div>
 
                     {/* Vector / Styled Overlay map container */}
@@ -1507,9 +1562,9 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
                     <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Partner Rating & Feedback</h3>
                     
-                    {feedbacks.some(f => f.pickupId === selectedPickup.id) ? (
+                    {selectedPickup.feedback ? (
                       (() => {
-                        const fb = feedbacks.find(f => f.pickupId === selectedPickup.id)!;
+                        const fb = selectedPickup.feedback!;
                         return (
                           <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 flex gap-3 items-start">
                             <span className="text-xl">🌟</span>
@@ -1517,8 +1572,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                               <p className="text-xs font-bold text-slate-800">My Registered Feedback</p>
                               <div className="flex gap-1.5 my-1">
                                 {Array.from({ length: 5 }).map((_, idx) => (
-                                  <span key={idx} className={idx < fb.customerRating ? "text-amber-400 text-xs" : "text-slate-200 text-xs"}>★</span>
-                                ))}
+                                   <span key={idx} className={idx < (fb.customerRating ?? 0) ? "text-amber-400 text-xs" : "text-slate-200 text-xs"}>★</span>                                ))}
                               </div>
                               <p className="text-[10px] text-slate-500 italic">"{fb.customerComment}"</p>
                             </div>
@@ -1526,7 +1580,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                         );
                       })()
                     ) : (
-                      <form onSubmit={(e) => { setActiveRatingPickupId(selectedPickup.id); handleSubmitPickupReview(e); }} className="flex flex-col gap-3">
+                      <form onSubmit={(e) => { setActiveRatingPickupId(String(selectedPickup.id)); handleSubmitPickupReview(e); }} className="flex flex-col gap-3">
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">Select Rating:</span>
                           <div className="flex gap-1">
@@ -1678,11 +1732,11 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
 
                 {/* ITERATING LIST */}
                 {(() => {
-                  const filtered = pickups
+                  const filtered = pkPickups
                     .filter(p => {
                       if (!pickupSearch) return true;
                       const s = pickupSearch.toLowerCase();
-                      return p.id.toLowerCase().includes(s) || 
+                      return String(p.id).includes(s) || 
                              p.category.toLowerCase().includes(s) || 
                              p.subcategory.toLowerCase().includes(s) || 
                              p.pickupAddress.toLowerCase().includes(s) ||
@@ -1725,7 +1779,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                           <div>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-bold text-slate-800 font-mono">REQ ID: {p.id}</span>
+                                <span className="text-xs font-bold text-slate-800 font-mono">REQ ID: REQ-{p.id}</span>
                                 <span className={`inline-block text-[8px] font-bold px-2 py-0.5 rounded-full uppercase ${
                                   p.status === 'Completed' ? 'bg-emerald-50 text-emerald-700' :
                                   p.status === 'Cancelled' ? 'bg-rose-50 text-rose-700' :
@@ -1754,8 +1808,8 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                             <button 
                               id={`complain-pickup-${p.id}`}
                               onClick={() => {
-                                setComplaintPickupId(p.id);
-                                setComplaintSubject(`Dispute regarding pickup ${p.id}`);
+                                setComplaintPickupId(String(p.id));
+                                setComplaintSubject(`Dispute regarding pickup REQ-${p.id}`);
                                 setComplaintCategory('Payment Issue');
                                 setComplaintDescription('');
                                 setComplaintModalOpen(true);
@@ -2603,15 +2657,18 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
             
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mt-2">
               <h3 className="font-display font-bold text-sm text-slate-900 flex items-center gap-1.5"><Bell className="w-4 h-4 text-brand-600" /> Notifications Log</h3>
-              <button onClick={() => setNotifications(notifications.map(n => ({ ...n, read: true })))} className="text-[10px] text-brand-600 font-bold hover:underline">Mark all read</button>
+              <button onClick={() => markAllDashNotificationsRead()} className="text-[10px] text-brand-600 font-bold hover:underline">Mark all read</button>
             </div>
 
             <div className="flex-1 flex flex-col gap-3 overflow-y-auto pr-1">
-              {notifications.map((n) => (
+              {dashNotifications.length === 0 && (
+                <p className="text-[10px] text-slate-400 text-center py-8">You're all caught up — no notifications yet.</p>
+              )}
+              {dashNotifications.map((n) => (
                 <div key={n.id} className={`p-3 rounded-xl border flex flex-col gap-1 text-xs relative ${
-                  n.read ? 'bg-slate-50/50 border-slate-100 text-slate-500' : 'bg-brand-50/40 border-brand-100 text-slate-800'
+                  n.isRead ? 'bg-slate-50/50 border-slate-100 text-slate-500' : 'bg-brand-50/40 border-brand-100 text-slate-800'
                 }`}>
-                  {!n.read && <span className="absolute top-3 right-3 w-1.5 h-1.5 rounded-full bg-brand-500" />}
+                  {!n.isRead && <span className="absolute top-3 right-3 w-1.5 h-1.5 rounded-full bg-brand-500" />}
                   <h4 className="font-bold leading-tight pr-4">{n.title}</h4>
                   <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{n.message}</p>
                   <span className="text-[8px] text-slate-400 mt-1 font-mono">{n.createdAt.slice(0, 16).replace('T', ' ')}</span>

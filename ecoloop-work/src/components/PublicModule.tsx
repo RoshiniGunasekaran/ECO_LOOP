@@ -6,13 +6,17 @@ import {
   Briefcase, Truck, Users, Activity, BarChart3, Star, Award, Heart
 } from 'lucide-react';
 import { INITIAL_PRICING_RATES } from '../data';
+import { useAuth } from '../context/AuthContext';
+import VerifyEmailNotice from './VerifyEmailNotice';
+import ForgotPasswordForm from './ForgotPasswordForm';
 
 interface PublicModuleProps {
-  onLoginSuccess: (role: UserRole) => void;
+  onLoginSuccess: () => void;
   initialTab?: string;
 }
 
 export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: PublicModuleProps) {
+  const { signIn, signUp, isAuthenticating } = useAuth();
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [faqSearch, setFaqSearch] = useState<string>('');
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
@@ -27,14 +31,16 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
   // Registration State
   const [registerRole, setRegisterRole] = useState<'customer' | 'partner' | 'industry'>('customer');
   const [regSuccess, setRegSuccess] = useState(false);
+  const [regError, setRegError] = useState('');
+  const [regNeedsVerification, setRegNeedsVerification] = useState(false);
   const [customerForm, setCustomerForm] = useState({
     name: '', email: '', phone: '', password: '', confirmPassword: '', address: '', city: '', state: '', pincode: ''
   });
   const [partnerForm, setPartnerForm] = useState({
-    name: '', email: '', phone: '', password: '', address: '', vehicleType: 'Electric Box Truck', vehicleNumber: '', license: '', aadhaar: ''
+    name: '', email: '', phone: '', password: '', confirmPassword: '', address: '', vehicleType: 'Electric Box Truck', vehicleNumber: '', license: '', aadhaar: ''
   });
   const [industryForm, setIndustryForm] = useState({
-    companyName: '', industryType: '', gstNumber: '', regNumber: '', contactPerson: '', email: '', phone: '', address: ''
+    companyName: '', industryType: '', gstNumber: '', regNumber: '', contactPerson: '', email: '', phone: '', address: '', password: '', confirmPassword: ''
   });
 
   // Contact Form State
@@ -88,46 +94,112 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
     f.a.toLowerCase().includes(faqSearch.toLowerCase())
   );
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  // Task 4.2 — Email Login (real Supabase auth; role comes from the profiles table afterward)
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail) {
-      setLoginError('Please enter your email.');
+    setLoginError('');
+
+    if (!loginEmail || !loginPassword) {
+      setLoginError('Please enter both your email and password.');
       return;
     }
-    
-    // Quick auto-login helper based on entered email matching our mock data
-    if (loginEmail.includes('admin')) {
-      onLoginSuccess('admin');
-    } else if (loginEmail.includes('partner') || loginEmail.includes('daniel')) {
-      onLoginSuccess('partner');
-    } else if (loginEmail.includes('industry') || loginEmail.includes('evergreen')) {
-      onLoginSuccess('industry');
-    } else {
-      // Default to customer
-      onLoginSuccess('customer');
+
+    const result = await signIn(loginEmail, loginPassword);
+    if (!result.success) {
+      setLoginError(result.error || 'Login failed. Please try again.');
+      return;
     }
+
+    // AuthContext resolves the real role from `profiles`; App.tsx routes to the
+    // matching module automatically once the session updates.
+    onLoginSuccess();
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  // Task 4.1 — Email Signup (real Supabase auth + profile creation via DB trigger)
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate API registration success
+    setRegError('');
+
+    let payload: Parameters<typeof signUp>[0] | null = null;
+
+    if (registerRole === 'customer') {
+      const f = customerForm;
+      if (f.password !== f.confirmPassword) {
+        setRegError('Passwords do not match.');
+        return;
+      }
+      payload = {
+        role: 'customer',
+        email: f.email,
+        password: f.password,
+        fullName: f.name,
+        phone: f.phone,
+        address: f.address,
+        city: f.city,
+        state: f.state,
+        pincode: f.pincode,
+      };
+    } else if (registerRole === 'partner') {
+      const f = partnerForm;
+      if (f.password !== f.confirmPassword) {
+        setRegError('Passwords do not match.');
+        return;
+      }
+      payload = {
+        role: 'partner',
+        email: f.email,
+        password: f.password,
+        fullName: f.name,
+        phone: f.phone,
+        address: f.address,
+        vehicleType: f.vehicleType,
+        vehicleNumber: f.vehicleNumber,
+        drivingLicense: f.license,
+        aadhaarNumber: f.aadhaar,
+      };
+    } else {
+      const f = industryForm;
+      if (f.password !== f.confirmPassword) {
+        setRegError('Passwords do not match.');
+        return;
+      }
+      payload = {
+        role: 'industry',
+        email: f.email,
+        password: f.password,
+        fullName: f.contactPerson,
+        phone: f.phone,
+        address: f.address,
+        companyName: f.companyName,
+        industryType: f.industryType,
+        gstNumber: f.gstNumber,
+        regNumber: f.regNumber,
+        contactPerson: f.contactPerson,
+      };
+    }
+
+    const result = await signUp(payload);
+    if (!result.success) {
+      setRegError(result.error || 'Registration failed. Please try again.');
+      return;
+    }
+
+    setRegNeedsVerification(Boolean(result.needsEmailVerification));
     setRegSuccess(true);
   };
 
   const autofillCredentials = (role: 'customer' | 'partner' | 'industry' | 'admin') => {
     setLoginRole(role);
+    setLoginPassword('');
+    setLoginError('');
     if (role === 'admin') {
       setLoginEmail('admin@ecoloop.com');
-      setLoginPassword('••••••••');
     } else if (role === 'partner') {
       setLoginEmail('daniel.cruz@ecoloop-partner.com');
-      setLoginPassword('••••••••');
     } else if (role === 'industry') {
       setLoginEmail('contact@evergreenpaper.com');
-      setLoginPassword('••••••••');
     } else {
       setLoginEmail('alex.rivera@gmail.com');
-      setLoginPassword('••••••••');
     }
   };
 
@@ -699,7 +771,7 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Security Password</label>
-                    <button type="button" className="text-[10px] text-brand-600 hover:underline">Forgot Password?</button>
+                    <button type="button" onClick={() => setActiveTab('forgot-password')} className="text-[10px] text-brand-600 hover:underline">Forgot Password?</button>
                   </div>
                   <input 
                     type="password" 
@@ -723,8 +795,8 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                   </label>
                 </div>
 
-                <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md shadow-brand-100">
-                  Authenticate Account
+                <button type="submit" disabled={isAuthenticating} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md shadow-brand-100">
+                  {isAuthenticating ? 'Authenticating...' : 'Authenticate Account'}
                 </button>
               </form>
 
@@ -755,6 +827,11 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
           </div>
         )}
 
+        {/* Task 4.4 — Forgot Password */}
+        {activeTab === 'forgot-password' && (
+          <ForgotPasswordForm initialEmail={loginEmail} onBackToLogin={() => setActiveTab('login')} />
+        )}
+
         {/* REGISTER VIEW */}
         {activeTab === 'register' && (
           <div className="max-w-2xl mx-auto px-4 py-12 flex flex-col gap-6 animate-fade-in">
@@ -764,7 +841,10 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                   <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-2"><CheckCircle className="w-6 h-6" /></div>
                   <h3 className="text-sm font-bold text-slate-800">Registration Request Submitted!</h3>
                   <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-                    Account created successfully. For Partners and Industries, administrators will review uploaded licenses/GST credentials within 24 hours.
+                    {registerRole === 'customer'
+                      ? 'Account created successfully.'
+                      : 'Account created successfully. Administrators will review your submitted credentials within 24 hours before your account is activated.'}
+                    {regNeedsVerification && ' Please verify your email before logging in — check your inbox for the verification link.'}
                   </p>
                   <button onClick={() => { setRegSuccess(false); setActiveTab('login'); }} className="text-xs font-semibold bg-slate-900 text-white px-4 py-2 rounded-xl mt-3 hover:bg-slate-800 transition">
                     Go to Login
@@ -776,6 +856,8 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                     <span className="font-display text-xl font-bold tracking-tight text-slate-950">Join the EcoLoop Loop</span>
                     <p className="text-[11px] text-slate-500 mt-1">Select your specialized platform role to proceed registration</p>
                   </div>
+
+                  {regError && <div className="p-3 rounded-lg bg-rose-50 border border-rose-100 text-rose-700 text-[11px] font-semibold">{regError}</div>}
 
                   {/* Role selection tab button group */}
                   <div className="grid grid-cols-3 gap-2 bg-slate-100 p-1.5 rounded-xl">
@@ -809,43 +891,43 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Full Name</label>
-                            <input type="text" required placeholder="Alex Rivera" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="Alex Rivera" value={customerForm.name} onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Phone Number</label>
-                            <input type="tel" required placeholder="+1 (555) 019-2834" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="tel" required placeholder="+1 (555) 019-2834" value={customerForm.phone} onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] font-bold text-slate-500 uppercase">Email Address</label>
-                          <input type="email" required placeholder="alex@gmail.com" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          <input type="email" required placeholder="alex@gmail.com" value={customerForm.email} onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Password</label>
-                            <input type="password" required placeholder="••••••••" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="password" required placeholder="••••••••" value={customerForm.password} onChange={(e) => setCustomerForm({ ...customerForm, password: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Confirm Password</label>
-                            <input type="password" required placeholder="••••••••" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="password" required placeholder="••••••••" value={customerForm.confirmPassword} onChange={(e) => setCustomerForm({ ...customerForm, confirmPassword: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] font-bold text-slate-500 uppercase">Street Address</label>
-                          <input type="text" required placeholder="482 Maple Avenue, Green District" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          <input type="text" required placeholder="482 Maple Avenue, Green District" value={customerForm.address} onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">City</label>
-                            <input type="text" required placeholder="Metro City" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="Metro City" value={customerForm.city} onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">State</label>
-                            <input type="text" required placeholder="California" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="California" value={customerForm.state} onChange={(e) => setCustomerForm({ ...customerForm, state: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Pincode</label>
-                            <input type="text" required placeholder="94043" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="94043" value={customerForm.pincode} onChange={(e) => setCustomerForm({ ...customerForm, pincode: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                       </div>
@@ -857,17 +939,31 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Full Name</label>
-                            <input type="text" required placeholder="Daniel Cruz" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="Daniel Cruz" value={partnerForm.name} onChange={(e) => setPartnerForm({ ...partnerForm, name: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Phone Number</label>
-                            <input type="tel" required placeholder="+1 (555) 012-7744" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="tel" required placeholder="+1 (555) 012-7744" value={partnerForm.phone} onChange={(e) => setPartnerForm({ ...partnerForm, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">Email Address</label>
+                          <input type="email" required placeholder="daniel.cruz@example.com" value={partnerForm.email} onChange={(e) => setPartnerForm({ ...partnerForm, email: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Password</label>
+                            <input type="password" required placeholder="••••••••" value={partnerForm.password} onChange={(e) => setPartnerForm({ ...partnerForm, password: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Confirm Password</label>
+                            <input type="password" required placeholder="••••••••" value={partnerForm.confirmPassword} onChange={(e) => setPartnerForm({ ...partnerForm, confirmPassword: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Vehicle Type</label>
-                            <select className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            <select value={partnerForm.vehicleType} onChange={(e) => setPartnerForm({ ...partnerForm, vehicleType: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
                               <option>Electric Box Truck</option>
                               <option>Heavy Duty Van</option>
                               <option>E-Cargo Bike</option>
@@ -875,17 +971,17 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Vehicle Number</label>
-                            <input type="text" required placeholder="EL-TRUCK-09" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="EL-TRUCK-09" value={partnerForm.vehicleNumber} onChange={(e) => setPartnerForm({ ...partnerForm, vehicleNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Driving License ID</label>
-                            <input type="text" required placeholder="DL-9823102-A" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="DL-9823102-A" value={partnerForm.license} onChange={(e) => setPartnerForm({ ...partnerForm, license: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">National ID Number</label>
-                            <input type="text" required placeholder="1234-5678-9012" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="1234-5678-9012" value={partnerForm.aadhaar} onChange={(e) => setPartnerForm({ ...partnerForm, aadhaar: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="flex flex-col gap-1">
@@ -895,6 +991,7 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                             <span className="text-[10px] font-semibold text-slate-600">Click to upload license copy</span>
                             <span className="text-[9px] text-slate-400">Max size: 5MB</span>
                           </div>
+                          <span className="text-[9px] text-slate-400 mt-1">File upload wiring comes in Module 26 (External Services) — not required to submit registration.</span>
                         </div>
                       </div>
                     )}
@@ -905,47 +1002,57 @@ export default function PublicModule({ onLoginSuccess, initialTab = 'home' }: Pu
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Registered Company Name</label>
-                            <input type="text" required placeholder="EverGreen Paper Mills" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="EverGreen Paper Mills" value={industryForm.companyName} onChange={(e) => setIndustryForm({ ...industryForm, companyName: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Industry Processing Type</label>
-                            <input type="text" required placeholder="Paper Recycling & Pulper" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="Paper Recycling & Pulper" value={industryForm.industryType} onChange={(e) => setIndustryForm({ ...industryForm, industryType: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">GST Registration ID</label>
-                            <input type="text" required placeholder="GST-99283102-ECO" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="GST-99283102-ECO" value={industryForm.gstNumber} onChange={(e) => setIndustryForm({ ...industryForm, gstNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Corporate License ID</label>
-                            <input type="text" required placeholder="REG-88102-PVT" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="REG-88102-PVT" value={industryForm.regNumber} onChange={(e) => setIndustryForm({ ...industryForm, regNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <div className="flex flex-col gap-1 col-span-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Contact Person</label>
-                            <input type="text" required placeholder="David Vance" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="text" required placeholder="David Vance" value={industryForm.contactPerson} onChange={(e) => setIndustryForm({ ...industryForm, contactPerson: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1 col-span-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Work Email</label>
-                            <input type="email" required placeholder="contact@evergreen.com" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="email" required placeholder="contact@evergreen.com" value={industryForm.email} onChange={(e) => setIndustryForm({ ...industryForm, email: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                           <div className="flex flex-col gap-1 col-span-1">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Work Hotline</label>
-                            <input type="tel" required placeholder="+1 (555) 015-4421" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                            <input type="tel" required placeholder="+1 (555) 015-4421" value={industryForm.phone} onChange={(e) => setIndustryForm({ ...industryForm, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Password</label>
+                            <input type="password" required placeholder="••••••••" value={industryForm.password} onChange={(e) => setIndustryForm({ ...industryForm, password: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Confirm Password</label>
+                            <input type="password" required placeholder="••••••••" value={industryForm.confirmPassword} onChange={(e) => setIndustryForm({ ...industryForm, confirmPassword: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                           </div>
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] font-bold text-slate-500 uppercase">Corporate Address</label>
-                          <input type="text" required placeholder="Industrial Sector 4, Green Lane" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                          <input type="text" required placeholder="Industrial Sector 4, Green Lane" value={industryForm.address} onChange={(e) => setIndustryForm({ ...industryForm, address: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                         </div>
                       </div>
                     )}
                   </div>
 
-                  <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md">
-                    Submit Registration Request
+                  <button type="submit" disabled={isAuthenticating} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md">
+                    {isAuthenticating ? 'Submitting...' : 'Submit Registration Request'}
                   </button>
 
                   <div className="text-center pt-2">

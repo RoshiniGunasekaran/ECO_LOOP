@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserRole } from './types';
 import RoleSwitcher from './components/RoleSwitcher';
 import PublicModule from './components/PublicModule';
@@ -12,26 +12,40 @@ import DeliveryPartnerModule from './components/DeliveryPartnerModule';
 import IndustryModule from './components/IndustryModule';
 import AdminModule from './components/AdminModule';
 import ModuleLogin from './components/ModuleLogin';
+import ProtectedRoute from './components/ProtectedRoute';
+import ResetPasswordForm from './components/ResetPasswordForm';
+import { useAuth } from './context/AuthContext';
 
 export default function App() {
+  const { isAuthenticated, role, isPasswordRecovery, clearPasswordRecovery, signOut } = useAuth();
   const [currentRole, setCurrentRole] = useState<UserRole>('public');
-  const [authenticatedRole, setAuthenticatedRole] = useState<UserRole | null>(null);
 
-  const handleRoleChange = (role: UserRole) => {
-    setCurrentRole(role);
-    // Any change in role resets the active session to guarantee secure role separation
-    setAuthenticatedRole(null);
+  // Module 4 / Task 4.9 (Role Management): once a real login succeeds, the
+  // AuthContext session listener resolves `role` from the profiles table —
+  // this just moves the visible module to match it.
+  useEffect(() => {
+    if (isAuthenticated && role !== 'public') {
+      setCurrentRole(role);
+    }
+  }, [isAuthenticated, role]);
+
+  const handleRoleChange = (nextRole: UserRole) => {
+    setCurrentRole(nextRole);
   };
 
-  const handleLoginSuccess = (role: UserRole) => {
-    setCurrentRole(role);
-    setAuthenticatedRole(role);
-  };
+  // Login forms call signIn() themselves via useAuth(); this is just a UI hook —
+  // the effect above does the actual navigation once the session updates.
+  const handleLoginSuccess = () => {};
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut();
     setCurrentRole('public');
-    setAuthenticatedRole(null);
   };
+
+  // Task 4.5 — a password-recovery link was opened; show the reset form above everything else.
+  if (isPasswordRecovery) {
+    return <ResetPasswordForm onComplete={clearPasswordRecovery} />;
+  }
 
   return (
     <div className="relative min-h-screen bg-slate-50 selection:bg-brand-500 selection:text-white">
@@ -41,51 +55,63 @@ export default function App() {
       )}
 
       {currentRole === 'customer' && (
-        authenticatedRole === 'customer' ? (
+        <ProtectedRoute
+          allowedRole="customer"
+          fallback={
+            <ModuleLogin
+              role="customer"
+              onLoginSuccess={handleLoginSuccess}
+              onGoBack={() => setCurrentRole('public')}
+            />
+          }
+        >
           <CustomerModule onLogout={handleLogout} />
-        ) : (
-          <ModuleLogin 
-            role="customer" 
-            onLoginSuccess={() => handleLoginSuccess('customer')} 
-            onGoBack={() => setCurrentRole('public')} 
-          />
-        )
+        </ProtectedRoute>
       )}
 
       {currentRole === 'partner' && (
-        authenticatedRole === 'partner' ? (
+        <ProtectedRoute
+          allowedRole="partner"
+          fallback={
+            <ModuleLogin
+              role="partner"
+              onLoginSuccess={handleLoginSuccess}
+              onGoBack={() => setCurrentRole('public')}
+            />
+          }
+        >
           <DeliveryPartnerModule onLogout={handleLogout} />
-        ) : (
-          <ModuleLogin 
-            role="partner" 
-            onLoginSuccess={() => handleLoginSuccess('partner')} 
-            onGoBack={() => setCurrentRole('public')} 
-          />
-        )
+        </ProtectedRoute>
       )}
 
       {currentRole === 'industry' && (
-        authenticatedRole === 'industry' ? (
+        <ProtectedRoute
+          allowedRole="industry"
+          fallback={
+            <ModuleLogin
+              role="industry"
+              onLoginSuccess={handleLoginSuccess}
+              onGoBack={() => setCurrentRole('public')}
+            />
+          }
+        >
           <IndustryModule onLogout={handleLogout} />
-        ) : (
-          <ModuleLogin 
-            role="industry" 
-            onLoginSuccess={() => handleLoginSuccess('industry')} 
-            onGoBack={() => setCurrentRole('public')} 
-          />
-        )
+        </ProtectedRoute>
       )}
 
       {currentRole === 'admin' && (
-        authenticatedRole === 'admin' ? (
+        <ProtectedRoute
+          allowedRole="admin"
+          fallback={
+            <ModuleLogin
+              role="admin"
+              onLoginSuccess={handleLoginSuccess}
+              onGoBack={() => setCurrentRole('public')}
+            />
+          }
+        >
           <AdminModule onLogout={handleLogout} />
-        ) : (
-          <ModuleLogin 
-            role="admin" 
-            onLoginSuccess={() => handleLoginSuccess('admin')} 
-            onGoBack={() => setCurrentRole('public')} 
-          />
-        )
+        </ProtectedRoute>
       )}
 
       {/* Persistent Prototype Switcher (Bottom-Right Floating Anchor) */}
@@ -93,4 +119,3 @@ export default function App() {
     </div>
   );
 }
-

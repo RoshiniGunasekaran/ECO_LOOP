@@ -1,20 +1,25 @@
 import React, { useState } from 'react';
 import { UserRole } from '../types';
-import { 
-  Users, Truck, Factory, Shield, Lock, Mail, Eye, EyeOff, Sparkles, ArrowLeft 
+import {
+  Users, Truck, Factory, Shield, Lock, Mail, Eye, EyeOff, Sparkles, ArrowLeft
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import ForgotPasswordForm from './ForgotPasswordForm';
+import VerifyEmailNotice from './VerifyEmailNotice';
 
 interface ModuleLoginProps {
   role: 'customer' | 'partner' | 'industry' | 'admin';
-  onLoginSuccess: (role: UserRole) => void;
+  onLoginSuccess: () => void;
   onGoBack: () => void;
 }
 
 export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLoginProps) {
+  const { signIn, isAuthenticating } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [view, setView] = useState<'login' | 'forgot-password' | 'verify-email'>('login');
 
   // Configure role-specific aesthetics
   const roleConfig = {
@@ -28,7 +33,6 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
       btnColor: 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100 focus:ring-emerald-500',
       accentColor: 'text-emerald-600',
       demoEmail: 'alex.rivera@gmail.com',
-      demoPass: 'alex123',
     },
     partner: {
       title: 'Delivery Partner Portal',
@@ -40,7 +44,6 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
       btnColor: 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100 focus:ring-indigo-500',
       accentColor: 'text-indigo-600',
       demoEmail: 'daniel.cruz@ecoloop-partner.com',
-      demoPass: 'daniel123',
     },
     industry: {
       title: 'Industrial Partner Portal',
@@ -52,7 +55,6 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
       btnColor: 'bg-amber-600 hover:bg-amber-700 shadow-amber-100 focus:ring-amber-500',
       accentColor: 'text-amber-600',
       demoEmail: 'contact@evergreenpaper.com',
-      demoPass: 'evergreen123',
     },
     admin: {
       title: 'Administrator Console',
@@ -64,18 +66,18 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
       btnColor: 'bg-slate-900 hover:bg-slate-800 shadow-slate-200 focus:ring-slate-900',
       accentColor: 'text-rose-600',
       demoEmail: 'admin@ecoloop.com',
-      demoPass: 'admin123',
     }
   }[role];
 
   const handleAutofill = () => {
     setEmail(roleConfig.demoEmail);
-    setPassword(roleConfig.demoPass);
     setError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+
     if (!email) {
       setError('Please enter your registered email address.');
       return;
@@ -85,17 +87,38 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
       return;
     }
 
-    // Role-specific verification or auto-pass for the demo environment
-    onLoginSuccess(role);
+    // Task 4.2 — real Supabase email/password login.
+    const result = await signIn(email, password);
+
+    if (!result.success) {
+      if (result.error?.toLowerCase().includes('verify')) {
+        setView('verify-email');
+        return;
+      }
+      setError(result.error || 'Login failed. Please try again.');
+      return;
+    }
+
+    // AuthContext's session listener now knows who's logged in and what role
+    // they have; App.tsx routes to the right module automatically.
+    onLoginSuccess();
   };
 
+  if (view === 'forgot-password') {
+    return <ForgotPasswordForm initialEmail={email} onBackToLogin={() => setView('login')} />;
+  }
+
+  if (view === 'verify-email') {
+    return <VerifyEmailNotice email={email} onBackToLogin={() => setView('login')} />;
+  }
+
   return (
-    <div 
-      id={`module-login-container-${role}`} 
+    <div
+      id={`module-login-container-${role}`}
       className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 font-sans"
     >
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <button 
+        <button
           onClick={onGoBack}
           id="login-back-to-public-btn"
           className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 mb-6 font-medium transition"
@@ -178,13 +201,10 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
             </div>
 
             <div className="flex items-center justify-between text-[10px] font-medium text-slate-500">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-3.5 h-3.5" />
-                <span>Remember this session</span>
-              </label>
-              <button 
-                type="button" 
-                onClick={() => alert("Credentials bypass: Click 'Autofill Credentials' to sign in instantly!")} 
+              <span />
+              <button
+                type="button"
+                onClick={() => setView('forgot-password')}
                 className="text-slate-400 hover:underline"
               >
                 Forgot password?
@@ -194,9 +214,10 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
             <button
               type="submit"
               id="submit-auth-btn"
-              className={`w-full text-white text-xs font-bold py-3 rounded-xl transition-all shadow-md ${roleConfig.btnColor}`}
+              disabled={isAuthenticating}
+              className={`w-full text-white text-xs font-bold py-3 rounded-xl transition-all shadow-md disabled:opacity-60 ${roleConfig.btnColor}`}
             >
-              Verify & Enter Console
+              {isAuthenticating ? 'Verifying...' : 'Verify & Enter Console'}
             </button>
           </form>
 
@@ -212,8 +233,11 @@ export default function ModuleLogin({ role, onLoginSuccess, onGoBack }: ModuleLo
             onClick={handleAutofill}
             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl py-2 px-4 text-xs font-semibold text-slate-700 transition flex items-center justify-center gap-1.5 shadow-xs"
           >
-            <Sparkles className="w-3.5 h-3.5 text-slate-500" /> Autofill Demo Credentials
+            <Sparkles className="w-3.5 h-3.5 text-slate-500" /> Autofill Demo Email
           </button>
+          <p className="text-[9px] text-center text-slate-400 -mt-3">
+            Autofill only fills the email — you still need the real password for that account since login now checks a live Supabase database.
+          </p>
         </div>
       </div>
     </div>
