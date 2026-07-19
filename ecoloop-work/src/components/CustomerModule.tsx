@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDatabase } from '../context/DatabaseContext';
 import { useCustomerDashboard } from '../hooks/useCustomerDashboard';
 import { useCustomerPickups } from '../hooks/useCustomerPickups';
 import type { RealPickup } from '../services/pickupService';
+import type { RealDIYProject } from '../services/diyService';
+import { useCustomerWallet } from '../hooks/useCustomerWallet';
+import { useCustomerRewards } from '../hooks/useCustomerRewards';
+import { useCustomerDIY } from '../hooks/useCustomerDIY';
+import { useCommunity } from '../hooks/useCommunity';
+import type { ReportReason } from '../services/communityService';
+import { useCustomerProfile } from '../hooks/useCustomerProfile';
 import { 
-  CustomerItem, PickupRequest, DIYProject, Transaction, RewardProduct, 
-  NotificationItem, WasteCategory, PickupStatus, SupportTicket, SavedAddress, PickupFeedback 
+   CustomerItem, PickupRequest, Transaction, 
+  NotificationItem, WasteCategory, PickupStatus, SupportTicket, SavedAddress, PickupFeedback
 } from '../types';
 import { 
-  INITIAL_CUSTOMERS, INITIAL_PICKUP_REQUESTS, INITIAL_DIY_PROJECTS, 
+  INITIAL_CUSTOMERS, INITIAL_PICKUP_REQUESTS, 
   INITIAL_TRANSACTIONS, INITIAL_REWARD_PRODUCTS, INITIAL_NOTIFICATIONS, 
   WASTE_SUBCATEGORIES, INITIAL_PRICING_RATES, INITIAL_SAVED_ADDRESSES, INITIAL_SUPPORT_TICKETS, INITIAL_FEEDBACKS
 } from '../data';
@@ -17,7 +24,8 @@ import {
   Calendar, MapPin, Truck, CheckCircle2, ChevronRight, Search, Filter, 
   ArrowUpRight, ArrowDownLeft, Trash2, Map, ShieldAlert, Award, FileText, 
   MessageSquare, ThumbsUp, X, Upload, Check, AlertCircle, Sparkles, ArrowLeft,
-  Settings, HelpCircle, Star, Copy, Shield, ChevronDown, Download, Share2, Globe, Send, RefreshCw, AlertTriangle
+  Settings, HelpCircle, Star, Copy, Shield, ChevronDown, Download, Share2, Globe, Send, RefreshCw, AlertTriangle,
+  Trophy, Lock, Pencil, Bookmark, Flag
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -45,7 +53,6 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   const {
     customer, setCustomer,
     pickups, setPickups,
-    diyProjects, setDiyProjects,
     transactions, setTransactions,
     rewardStore, setRewardStore,
     notifications, setNotifications,
@@ -68,8 +75,9 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     unreadCount: dashUnreadCount,
     monthlyEarnings: dashMonthlyEarnings,
     wasteDistribution: dashWasteDistribution,
-    pointsAccumulation: dashPointsAccumulation,
+      pointsAccumulation: dashPointsAccumulation,
     markAllNotificationsRead: markAllDashNotificationsRead,
+    refresh: refreshDashStats,
   } = useCustomerDashboard();
 
   // Module 6 (Pickup Management) — REAL Supabase-backed data.
@@ -86,6 +94,89 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     cancelPickup: pkCancelPickup,
     submitFeedback: pkSubmitFeedback,
   } = useCustomerPickups();
+
+  // Module 7 (Wallet) — REAL Supabase-backed data. Prefixed with
+  // "wl" so it never collides with the mock `transactions` above
+  // (still used by Rewards/DIY until Module 8+ wire those too).
+  const {
+    loading: wlLoading,
+    transactions: wlTransactions,
+    payoutMethod: wlPayoutMethod,
+    withdrawalRequests: wlWithdrawalRequests,
+    savePayoutMethod: wlSavePayoutMethod,
+    submitWithdrawalRequest: wlSubmitWithdrawalRequest,
+  } = useCustomerWallet();
+
+  // Module 8 (Rewards) — REAL Supabase-backed data. Prefixed with "rw" so
+  // it never collides with the mock `rewardStore` / `transactions` above
+  // (the mock `transactions` array is still used by DIY's "Reward" writes
+  // until DIY approval gets its own real module).
+  const {
+    loading: rwLoading,
+    rewardStore: rwRewardStore,
+    redemptionHistory: rwRedemptionHistory,
+    badges: rwBadges,
+    leaderboard: rwLeaderboard,
+    redeeming: rwRedeeming,
+    redeemReward: rwRedeemReward,
+  } = useCustomerRewards();
+
+  // Module 9 (DIY Projects) — REAL Supabase-backed data. Prefixed with "dy"
+  // so it never collides with the mock `diyProjects` array above, which
+  // stays in place because the read-only "Community" showcase tab (browsing
+  // OTHER customers' approved crafts, liking, commenting) still runs on it
+  // until Module 10 (Community) wires that tab up for real.
+  const {
+    loading: dyLoading,
+    myProjects: dyMyProjects,
+    submitting: dySubmitting,
+    createProject: dyCreateProject,
+    updateProject: dyUpdateProject,
+    deleteProject: dyDeleteProject,
+  } = useCustomerDIY();
+
+  // Module 10 (Community) — REAL Supabase-backed data. Prefixed with "cm"
+  // so it never collides with anything else. This fully replaces the mock
+  // `diyProjects` array (and its handleLikeDIY/handleAddComment handlers)
+  // that the Community Explorer tab used to run on — the tab now only
+  // shows OTHER customers' real Approved DIY projects, with real
+  // like/save/comment/report actions.
+  const {
+    loading: cmLoading,
+    feed: cmFeed,
+    refresh: cmRefresh,
+    toggleLike: cmToggleLike,
+    toggleSave: cmToggleSave,
+    commentsByProject: cmCommentsByProject,
+    commentsLoading: cmCommentsLoading,
+    loadComments: cmLoadComments,
+    postingComment: cmPostingComment,
+    addComment: cmAddComment,
+    reporting: cmReporting,
+    reportProject: cmReportProject,
+  } = useCommunity();
+
+  // Module 11 (Customer Profile) — REAL Supabase-backed data. Prefixed with
+  // "pf" so it never collides with the mock `customer` above (still used
+  // elsewhere — e.g. Support/DIY/Rewards mock filtering — until those
+  // modules get their own real wiring). This fully replaces the mock
+  // profile-editing forms and the mock `savedAddresses` array/handlers
+  // (add/set-default/delete) that the Profile view and Settings tab used
+  // to run on.
+  const {
+    loading: pfLoading,
+    profile: pfProfile,
+    addresses: pfAddresses,
+    emailVerified: pfEmailVerified,
+    saving: pfSaving,
+    uploadingPicture: pfUploadingPicture,
+    updateProfile: pfUpdateProfile,
+    uploadProfilePicture: pfUploadProfilePicture,
+    changePassword: pfChangePassword,
+    addAddress: pfAddAddress,
+    setDefaultAddress: pfSetDefaultAddress,
+    deleteAddress: pfDeleteAddress,
+  } = useCustomerProfile();
 
   const CHART_COLORS = ['#059669', '#3b82f6', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#94a3b8'];
   
@@ -130,6 +221,50 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   // Change Password State
   const [pwdState, setPwdState] = useState({ old: '', newPwd: '', confirm: '' });
   const [pwdSuccess, setPwdSuccess] = useState(false);
+  const [pwdError, setPwdError] = useState<string | null>(null);
+
+  // Module 11 — Customer Profile edit form state (kept in sync with the
+  // real `pfProfile` row loaded by useCustomerProfile).
+  const [pfForm, setPfForm] = useState({ fullName: '', phone: '', address: '', city: '', state: '', pincode: '' });
+  const [pfSuccess, setPfSuccess] = useState(false);
+  const [pfError, setPfError] = useState<string | null>(null);
+  const [pfPictureError, setPfPictureError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pfProfile) {
+      setPfForm({
+        fullName: pfProfile.fullName ?? '',
+        phone: pfProfile.phone ?? '',
+        address: pfProfile.address ?? '',
+        city: pfProfile.city ?? '',
+        state: pfProfile.state ?? '',
+        pincode: pfProfile.pincode ?? '',
+      });
+    }
+  }, [pfProfile]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPfError(null);
+    const result = await pfUpdateProfile(pfForm);
+    if (!result.success) {
+      setPfError(result.error ?? 'Could not save your changes. Please try again.');
+      return;
+    }
+    setPfSuccess(true);
+    setTimeout(() => setPfSuccess(false), 3000);
+  };
+
+  const handleProfilePictureSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPfPictureError(null);
+    const result = await pfUploadProfilePicture(file);
+    if (!result.success) {
+      setPfPictureError(result.error ?? 'Upload failed. Please try a different image.');
+    }
+  };
 
   // Search & Filter state for Pickups
   const [pickupSearch, setPickupSearch] = useState('');
@@ -158,35 +293,68 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
   const [createPickupError, setCreatePickupError] = useState('');
   const [createPickupSubmitting, setCreatePickupSubmitting] = useState(false);
 
-  // DIY Submission State
+  // DIY Submission State — Module 9: real photo files instead of pasted
+  // URLs, plus `editingDiyId` so the same form does both create and edit.
   const [newDIY, setNewDIY] = useState({
     name: '',
     description: '',
     materials: '',
     estimatedCost: 5,
     benefits: '',
-    beforeImage: 'https://images.unsplash.com/photo-1530587191325-3db32d826c18?auto=format&fit=crop&q=80&w=200',
-    afterImage: 'https://images.unsplash.com/photo-1545249390-6bdfa286032f?auto=format&fit=crop&q=80&w=200'
+    beforeImageFile: null as File | null,
+    beforeImagePreview: '',
+    afterImageFile: null as File | null,
+    afterImagePreview: ''
   });
   const [diySuccess, setDiySuccess] = useState(false);
+  const [diyError, setDiyError] = useState('');
+  const [editingDiyId, setEditingDiyId] = useState<number | null>(null);
 
   // Wallet Actions State
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [withdrawalSuccess, setWithdrawalSuccess] = useState(false);
+  const [withdrawalError, setWithdrawalError] = useState('');
+  const [withdrawalSubmitting, setWithdrawalSubmitting] = useState(false);
   const [bankDetails, setBankDetails] = useState({
-    accountName: customer.name,
-    accountNumber: '982103492102',
-    bankName: 'Chase Savings Hub',
-    routingNumber: '021000021',
-    upiId: 'alex.rivera@upi'
+    accountName: '',
+    accountNumber: '',
+    bankName: '',
+    routingNumber: '',
+    upiId: ''
   });
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [payoutSaveSuccess, setPayoutSaveSuccess] = useState(false);
+
+  // Module 7 — once the real payout method loads, populate the editable form with it.
+  useEffect(() => {
+    if (wlPayoutMethod.updatedAt !== null || wlPayoutMethod.bankName || wlPayoutMethod.upiId) {
+      setBankDetails({
+        accountName: wlPayoutMethod.accountHolderName || customer.name,
+        accountNumber: wlPayoutMethod.accountNumber,
+        bankName: wlPayoutMethod.bankName,
+        routingNumber: wlPayoutMethod.ifscCode,
+        upiId: wlPayoutMethod.upiId
+      });
+    }
+  }, [wlPayoutMethod]);
 
   // Notification Pane
   const [notifPaneOpen, setNotifPaneOpen] = useState(false);
 
-  // New Comment State for DIY Community Explorer
-  const [newComment, setNewComment] = useState<Record<string, string>>({});
+  // Module 10 (Community) UI state — search/filter/sort run client-side
+  // over the real `cmFeed` (tasks 10.2/10.3); comment drafting, which
+  // project's comment thread is expanded, and the Report modal.
+  const [newComment, setNewComment] = useState<Record<number, string>>({});
+  const [communitySearch, setCommunitySearch] = useState('');
+  const [communityMaterialFilter, setCommunityMaterialFilter] = useState<string>('All');
+  const [communitySort, setCommunitySort] = useState<'newest' | 'most-liked' | 'most-discussed'>('newest');
+  const [expandedCommentsId, setExpandedCommentsId] = useState<number | null>(null);
+  const [copiedShareId, setCopiedShareId] = useState<number | null>(null);
+  const [reportModalProjectId, setReportModalProjectId] = useState<number | null>(null);
+  const [reportReason, setReportReason] = useState<ReportReason>('Inappropriate Content');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportSuccess, setReportSuccess] = useState(false);
 
   // Helper calculation for new pickup estimations — real rate from Module 6's
   // pricing_rates table, falling back to the mock table only if it hasn't loaded yet.
@@ -271,30 +439,30 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     }
   };
 
-  const handleWithdrawalSubmit = (e: React.FormEvent) => {
+  const handleWithdrawalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setWithdrawalError('');
     const amountNum = parseFloat(withdrawAmount);
-    if (isNaN(amountNum) || amountNum <= 0 || amountNum > customer.walletBalance) {
-      alert("Invalid withdrawal amount or insufficient balance.");
+    const realBalance = dashStats?.walletBalance ?? 0;
+
+    if (isNaN(amountNum) || amountNum <= 0 || amountNum > realBalance) {
+      setWithdrawalError("Invalid withdrawal amount or insufficient balance.");
+      return;
+    }
+    if (!bankDetails.bankName && !bankDetails.upiId) {
+      setWithdrawalError("Please add a bank account or UPI ID before requesting a withdrawal.");
       return;
     }
 
-    // Process Mock transaction
-    const newTx: Transaction = {
-      id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-      userId: customer.id,
-      type: 'Withdrawal',
-      amount: amountNum,
-      description: `Transfer to ${bankDetails.bankName} Account`,
-      status: 'Completed',
-      date: new Date().toISOString()
-    };
+    setWithdrawalSubmitting(true);
+    const result = await wlSubmitWithdrawalRequest(amountNum);
+    setWithdrawalSubmitting(false);
 
-    setTransactions([newTx, ...transactions]);
-    setCustomer({
-      ...customer,
-      walletBalance: customer.walletBalance - amountNum
-    });
+    if (!result.success) {
+      setWithdrawalError(result.error || "Could not submit your withdrawal request. Please try again.");
+      return;
+    }
+
     setWithdrawalSuccess(true);
     setTimeout(() => {
       setWithdrawalSuccess(false);
@@ -303,99 +471,215 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     }, 2000);
   };
 
-  const handleRedeemReward = (reward: RewardProduct) => {
-    if (customer.rewardPoints < reward.costPoints) {
-      alert(`Insufficient Eco Points! You need ${reward.costPoints - customer.rewardPoints} more points to redeem this.`);
-      return;
-    }
+  const handleSavePayoutMethod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPayoutSaving(true);
+    const ok = await wlSavePayoutMethod({
+      accountHolderName: bankDetails.accountName,
+      bankName: bankDetails.bankName,
+      accountNumber: bankDetails.accountNumber,
+      ifscCode: bankDetails.routingNumber,
+      upiId: bankDetails.upiId
+    });
+    setPayoutSaving(false);
 
-    if (confirm(`Redeem "${reward.name}" for ${reward.costPoints} Eco Points?`)) {
-      setCustomer({
-        ...customer,
-        rewardPoints: customer.rewardPoints - reward.costPoints
-      });
-
-      const newTx: Transaction = {
-        id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-        userId: customer.id,
-        type: 'Reward',
-        amount: 0,
-        points: reward.costPoints,
-        description: `Redeemed ${reward.name}`,
-        status: 'Completed',
-        date: new Date().toISOString()
-      };
-
-      setTransactions([newTx, ...transactions]);
-
-      alert(`Success! Check your registered email for your digital voucher or redemption details.`);
+    if (ok) {
+      setPayoutSaveSuccess(true);
+      setTimeout(() => setPayoutSaveSuccess(false), 2000);
+    } else {
+      alert("Could not save your payout details. Please try again.");
     }
   };
 
-  const handleDIYSubmit = (e: React.FormEvent) => {
+  const handleRedeemReward = async (reward: { id: number; name: string; costPoints: number }) => {
+    const currentPoints = dashStats?.rewardPoints ?? 0;
+    if (currentPoints < reward.costPoints) {
+      alert(`Insufficient Eco Points! You need ${reward.costPoints - currentPoints} more points to redeem this.`);
+      return;
+    }
+
+    if (!confirm(`Redeem "${reward.name}" for ${reward.costPoints} Eco Points?`)) return;
+
+    const result = await rwRedeemReward(reward.id);
+    if (result.success) {
+      await refreshDashStats(); // dashStats.rewardPoints is the source of truth for the balance shown
+      alert(`Success! Check your registered email for your digital voucher or redemption details.`);
+    } else {
+      alert(result.error ?? 'Could not redeem this reward. Please try again.');
+    }
+  };
+
+  const resetDIYForm = () => {
+    setNewDIY({
+      name: '', description: '', materials: '', estimatedCost: 5, benefits: '',
+      beforeImageFile: null, beforeImagePreview: '',
+      afterImageFile: null, afterImagePreview: ''
+    });
+    setEditingDiyId(null);
+  };
+
+  const handleDIYImageChange = (slot: 'before' | 'after', e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    if (slot === 'before') {
+      setNewDIY({ ...newDIY, beforeImageFile: file, beforeImagePreview: previewUrl });
+    } else {
+      setNewDIY({ ...newDIY, afterImageFile: file, afterImagePreview: previewUrl });
+    }
+  };
+
+  // Task 9.5 — Populate the form from an existing submission and switch it into edit mode.
+  const handleEditDIYProject = (project: RealDIYProject) => {
+    setEditingDiyId(project.id);
+    setDiyError('');
+    setDiySuccess(false);
+    setNewDIY({
+      name: project.projectName,
+      description: project.projectDescription,
+      materials: project.materialsUsed.join(', '),
+      estimatedCost: project.estimatedCost,
+      benefits: project.benefits ?? '',
+      beforeImageFile: null,
+      beforeImagePreview: project.beforeImage ?? '',
+      afterImageFile: null,
+      afterImagePreview: project.afterImage ?? ''
+    });
+  };
+
+  const handleCancelEditDIY = () => resetDIYForm();
+
+  // Task 9.6 — Delete a still-Pending submission (RLS enforces the Pending-only rule server-side too).
+  const handleDeleteDIYProject = async (project: RealDIYProject) => {
+    if (project.status !== 'Pending') {
+      alert('This project has already been reviewed and can no longer be deleted.');
+      return;
+    }
+    if (!confirm(`Delete "${project.projectName}"? This can't be undone.`)) return;
+
+    const ok = await dyDeleteProject(project.id);
+    if (!ok) alert('Could not delete this project. Please try again.');
+    if (editingDiyId === project.id) resetDIYForm();
+  };
+
+  const handleDIYSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const diyId = `DIY-${Math.floor(100 + Math.random() * 900)}`;
-    const newCraft: DIYProject = {
-      id: diyId,
-      customerId: customer.id,
-      customerName: customer.name,
+    setDiyError('');
+
+    const materialsUsed = newDIY.materials.split(',').map(m => m.trim()).filter(Boolean);
+    const payload = {
       projectName: newDIY.name,
       projectDescription: newDIY.description,
-      materialsUsed: newDIY.materials.split(',').map(m => m.trim()),
+      materialsUsed,
       estimatedCost: newDIY.estimatedCost,
       benefits: newDIY.benefits,
-      beforeImage: newDIY.beforeImage,
-      afterImage: newDIY.afterImage,
-      status: 'Pending',
-      rewardEarned: 0,
-      createdAt: new Date().toISOString(),
-      likes: 0,
-      comments: []
     };
 
-    setDiyProjects([newCraft, ...diyProjects]);
+    let ok: boolean;
+    if (editingDiyId !== null) {
+      ok = await dyUpdateProject(editingDiyId, payload, newDIY.beforeImageFile, newDIY.afterImageFile);
+      if (!ok) setDiyError('Could not save your changes. This project may have already been reviewed.');
+    } else {
+      const newId = await dyCreateProject(payload, newDIY.beforeImageFile, newDIY.afterImageFile);
+      ok = newId !== null;
+      if (!ok) setDiyError('Could not submit your DIY project. Please check your connection and try again.');
+    }
+
+    if (!ok) return;
+
     setDiySuccess(true);
     setTimeout(() => {
       setDiySuccess(false);
-      setNewDIY({
-        name: '', description: '', materials: '', estimatedCost: 5, benefits: '',
-        beforeImage: 'https://images.unsplash.com/photo-1530587191325-3db32d826c18?auto=format&fit=crop&q=80&w=200',
-        afterImage: 'https://images.unsplash.com/photo-1545249390-6bdfa286032f?auto=format&fit=crop&q=80&w=200'
-      });
+      resetDIYForm();
       setActiveTab('diy-projects');
     }, 2000);
   };
 
-  const handleLikeDIY = (diyId: string) => {
-    setDiyProjects(diyProjects.map(proj => 
-      proj.id === diyId ? { ...proj, likes: proj.likes + 1 } : proj
-    ));
+  // Module 10 (Community) — real handlers wired to useCommunity().
+  const handleLikeDIY = (projectId: number) => {
+    cmToggleLike(projectId);
   };
 
-  const handleAddComment = (diyId: string) => {
-    const text = newComment[diyId];
+  const handleToggleCommentsFor = (projectId: number) => {
+    const opening = expandedCommentsId !== projectId;
+    setExpandedCommentsId(opening ? projectId : null);
+    if (opening && !cmCommentsByProject[projectId]) {
+      cmLoadComments(projectId);
+    }
+  };
+
+  const handleAddComment = async (projectId: number) => {
+    const text = newComment[projectId];
     if (!text || !text.trim()) return;
-
-    setDiyProjects(diyProjects.map(proj => {
-      if (proj.id === diyId) {
-        return {
-          ...proj,
-          comments: [
-            ...proj.comments,
-            {
-              id: `com-${Math.random()}`,
-              userName: customer.name,
-              text: text,
-              createdAt: new Date().toISOString()
-            }
-          ]
-        };
-      }
-      return proj;
-    }));
-
-    setNewComment({ ...newComment, [diyId]: '' });
+    const ok = await cmAddComment(projectId, text);
+    if (ok) setNewComment({ ...newComment, [projectId]: '' });
   };
+
+  const handleToggleSave = (projectId: number) => {
+    cmToggleSave(projectId);
+  };
+
+  const handleShareProject = async (project: (typeof cmFeed)[number]) => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?community_project=${project.id}`;
+    const shareData = { title: project.projectName, text: `Check out "${project.projectName}" on EcoLoop's Community Showcase!`, url: shareUrl };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+    } catch {
+      // user cancelled the native share sheet — fall through to clipboard copy
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedShareId(project.id);
+      setTimeout(() => setCopiedShareId(null), 2000);
+    } catch {
+      // clipboard blocked (e.g. insecure context) — silently no-op, nothing to recover from here
+    }
+  };
+
+  const handleOpenReport = (projectId: number) => {
+    setReportModalProjectId(projectId);
+    setReportReason('Inappropriate Content');
+    setReportDetails('');
+    setReportSuccess(false);
+  };
+
+  const handleSubmitReport = async () => {
+    if (reportModalProjectId === null) return;
+    const ok = await cmReportProject(reportModalProjectId, reportReason, reportDetails);
+    if (ok) {
+      setReportSuccess(true);
+      setTimeout(() => {
+        setReportModalProjectId(null);
+        setReportSuccess(false);
+      }, 1500);
+    }
+  };
+
+  // Tasks 10.2 (Search) + 10.3 (Filter) + sort — all run client-side over
+  // the real feed already loaded by useCommunity(), same pattern as My
+  // Pickup Requests' search/filter/sort in Module 6.
+  const communityMaterials = Array.from(new Set(cmFeed.flatMap((p) => p.materialsUsed))).sort();
+
+  const filteredCommunityFeed = cmFeed
+    .filter((p) => {
+      if (communityMaterialFilter !== 'All' && !p.materialsUsed.includes(communityMaterialFilter)) return false;
+      if (!communitySearch.trim()) return true;
+      const q = communitySearch.trim().toLowerCase();
+      return (
+        p.projectName.toLowerCase().includes(q) ||
+        p.projectDescription.toLowerCase().includes(q) ||
+        p.authorName.toLowerCase().includes(q) ||
+        p.materialsUsed.some((m) => m.toLowerCase().includes(q))
+      );
+    })
+    .sort((a, b) => {
+      if (communitySort === 'most-liked') return b.likes - a.likes;
+      if (communitySort === 'most-discussed') return b.commentCount - a.commentCount;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).slice(0, 5 - newPickup.imageFiles.length);
@@ -430,7 +714,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
       customer, 
       pickups: pickups.filter(p => p.customerId === customer.id), 
       transactions: transactions.filter(t => t.userId === customer.id), 
-      savedAddresses, 
+      savedAddresses: pfAddresses, 
       supportTickets: supportTickets.filter(t => t.userId === customer.id) 
     }, null, 2));
     const downloadAnchor = document.createElement('a');
@@ -564,47 +848,53 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
     }, 2000);
   };
 
-  const handleAddSavedAddress = (e: React.FormEvent) => {
+  const handleAddSavedAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAddressText.trim() || !newAddressCity.trim() || !newAddressState.trim() || !newAddressPincode.trim()) {
       alert("Please complete all address fields.");
       return;
     }
-    const newAddress: SavedAddress = {
-      id: `ADR-${Math.floor(100 + Math.random() * 900)}`,
+    const ok = await pfAddAddress({
       label: newAddressLabel,
       address: newAddressText,
       city: newAddressCity,
       state: newAddressState,
       pincode: newAddressPincode,
-      isDefault: savedAddresses.length === 0
-    };
-    setSavedAddresses([...savedAddresses, newAddress]);
+    });
+    if (!ok) {
+      alert("Could not save that address. Please try again.");
+      return;
+    }
     setNewAddressText('');
     setNewAddressCity('');
     setNewAddressState('');
     setNewAddressPincode('');
   };
 
-  const handleSetDefaultAddress = (addressId: string) => {
-    setSavedAddresses(savedAddresses.map(adr => ({
-      ...adr,
-      isDefault: adr.id === addressId
-    })));
+  const handleSetDefaultAddress = async (addressId: number) => {
+    const ok = await pfSetDefaultAddress(addressId);
+    if (!ok) alert("Could not update your default address. Please try again.");
   };
 
-  const handleDeleteAddress = (addressId: string) => {
-    setSavedAddresses(savedAddresses.filter(adr => adr.id !== addressId));
+  const handleDeleteAddress = async (addressId: number) => {
+    const ok = await pfDeleteAddress(addressId);
+    if (!ok) alert("Could not delete that address. Please try again.");
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPwdError(null);
     if (!pwdState.old || !pwdState.newPwd || !pwdState.confirm) {
-      alert("Please fill all password fields.");
+      setPwdError("Please fill all password fields.");
       return;
     }
     if (pwdState.newPwd !== pwdState.confirm) {
-      alert("New password and confirm password do not match.");
+      setPwdError("New password and confirm password do not match.");
+      return;
+    }
+    const result = await pfChangePassword(pwdState.old, pwdState.newPwd);
+    if (!result.success) {
+      setPwdError(result.error ?? "Could not update your password. Please try again.");
       return;
     }
     setPwdSuccess(true);
@@ -645,7 +935,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
 
         {/* User Card */}
         <div className="bg-brand-950 p-3 rounded-xl border border-brand-800 flex items-center gap-3 mb-6">
-          <img className="w-10 h-10 rounded-full object-cover border border-brand-700" src={customer.profilePic} alt="profile" />
+          <img className="w-10 h-10 rounded-full object-cover border border-brand-700" src={pfProfile?.profilePicUrl || customer.profilePic} alt="profile" />
           <div className="min-w-0">
             <h4 className="text-xs font-bold text-white truncate">{dashStats?.fullName ?? customer.name}</h4>
             <span className="inline-flex items-center gap-1 text-[9px] text-brand-300 font-bold font-mono">
@@ -802,7 +1092,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                 onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                 className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 hover:bg-slate-50 transition shadow-2xs"
               >
-                <img className="w-6 h-6 rounded-full object-cover" src={customer.profilePic} alt="pic" />
+                <img className="w-6 h-6 rounded-full object-cover" src={pfProfile?.profilePicUrl || customer.profilePic} alt="pic" />
                 <ChevronDown className="w-3 h-3 text-slate-400" />
               </button>
 
@@ -1850,24 +2140,24 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
               <div className="text-left md:text-right">
                 <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">Withdrawable Earnings</span>
                 <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="text-3xl font-extrabold font-mono text-slate-900">₹{customer.walletBalance.toFixed(2)}</span>
+                  <span className="text-3xl font-extrabold font-mono text-slate-900">₹{(dashStats?.walletBalance ?? 0).toFixed(2)}</span>
                 </div>
-                {customer.walletBalance > 0 ? (
+                {(dashStats?.walletBalance ?? 0) > 0 ? (
                   <button onClick={() => setWithdrawModalOpen(true)} className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-5 py-2 rounded-xl mt-3 transition shadow-md shadow-brand-100">
                     Withdraw to Bank account
                   </button>
                 ) : (
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg inline-block mt-3">Balance Withdrawn</span>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg inline-block mt-3">Nothing to withdraw yet</span>
                 )}
               </div>
             </div>
 
-            {/* BANK DETAILS EDITOR */}
+            {/* BANK / UPI DETAILS EDITOR */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               
               <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Linked Bank Account</h3>
-                <form onSubmit={(e) => { e.preventDefault(); alert("Bank details updated successfully!"); }} className="flex flex-col gap-3">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Linked Bank Account & UPI</h3>
+                <form onSubmit={handleSavePayoutMethod} className="flex flex-col gap-3">
                   <div className="flex flex-col gap-1">
                     <label className="text-[9px] font-bold text-slate-500 uppercase">Bank Name</label>
                     <input type="text" value={bankDetails.bankName} onChange={(e) => setBankDetails({ ...bankDetails, bankName: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
@@ -1882,12 +2172,16 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                       <input type="text" value={bankDetails.accountNumber} onChange={(e) => setBankDetails({ ...bankDetails, accountNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-[9px] font-bold text-slate-500 uppercase">Routing Code</label>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase">IFSC / Routing Code</label>
                       <input type="text" value={bankDetails.routingNumber} onChange={(e) => setBankDetails({ ...bankDetails, routingNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                     </div>
                   </div>
-                  <button type="submit" className="text-[10px] font-bold bg-slate-900 text-white py-2 rounded-lg mt-1">
-                    Update Account Details
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] font-bold text-slate-500 uppercase">UPI ID (Optional)</label>
+                    <input type="text" placeholder="yourname@upi" value={bankDetails.upiId} onChange={(e) => setBankDetails({ ...bankDetails, upiId: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  </div>
+                  <button type="submit" disabled={payoutSaving} className="text-[10px] font-bold bg-slate-900 text-white py-2 rounded-lg mt-1 disabled:opacity-60">
+                    {payoutSaving ? 'Saving...' : payoutSaveSuccess ? 'Saved ✓' : 'Update Account Details'}
                   </button>
                 </form>
               </div>
@@ -1896,17 +2190,20 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
               <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Payout Logs Ledger</h3>
                 <div className="flex flex-col gap-2.5 max-h-64 overflow-y-auto pr-1">
-                  {transactions.map((tx) => (
+                  {wlTransactions.length === 0 && (
+                    <p className="text-[10px] text-slate-400 text-center py-6">No transactions yet — your ledger fills up once pickups are completed and settled.</p>
+                  )}
+                  {wlTransactions.map((tx) => (
                     <div key={tx.id} className="p-2.5 border border-slate-50 hover:border-slate-100 rounded-xl bg-slate-50/50 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-3">
                         {tx.type === 'Credit' ? <ArrowUpRight className="w-4 h-4 text-emerald-500" /> : <ArrowDownLeft className="w-4 h-4 text-slate-400" />}
                         <div>
-                          <p className="font-bold text-slate-800">{tx.description}</p>
-                          <p className="text-[9px] text-slate-400 font-mono">{tx.date.slice(0, 16).replace('T', ' ')} · {tx.id}</p>
+                          <p className="font-bold text-slate-800">{tx.description ?? tx.type}</p>
+                          <p className="text-[9px] text-slate-400 font-mono">{tx.date.slice(0, 16).replace('T', ' ')} · TXN-{tx.id}</p>
                         </div>
                       </div>
                       <span className={`font-mono font-extrabold ${tx.type === 'Credit' ? 'text-emerald-600' : 'text-slate-600'}`}>
-                        {tx.type === 'Credit' ? '+' : '-'}{tx.amount > 0 ? '₹' + tx.amount.toFixed(2) : tx.points + ' Pts'}
+                        {tx.type === 'Credit' ? '+' : '-'}{tx.amount > 0 ? '₹' + tx.amount.toFixed(2) : (tx.points ?? 0) + ' Pts'}
                       </span>
                     </div>
                   ))}
@@ -1915,35 +2212,64 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
 
             </div>
 
+            {/* WITHDRAWAL REQUEST HISTORY */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Withdrawal Request History</h3>
+              {wlWithdrawalRequests.length === 0 ? (
+                <p className="text-[10px] text-slate-400 text-center py-4">No withdrawal requests yet.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {wlWithdrawalRequests.map((w) => (
+                    <div key={w.id} className="p-2.5 border border-slate-50 rounded-xl bg-slate-50/50 flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-bold text-slate-800 font-mono">₹{w.amount.toFixed(2)}</p>
+                        <p className="text-[9px] text-slate-400 font-mono">{w.requestedAt.slice(0, 16).replace('T', ' ')}</p>
+                      </div>
+                      <span className={`text-[9px] font-bold uppercase px-2 py-1 rounded-full ${
+                        w.status === 'Paid' ? 'bg-emerald-100 text-emerald-700' :
+                        w.status === 'Rejected' ? 'bg-rose-100 text-rose-700' :
+                        w.status === 'Approved' ? 'bg-indigo-100 text-indigo-700' :
+                        'bg-amber-100 text-amber-700'
+                      }`}>{w.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[9px] text-slate-400 leading-relaxed">Withdrawal requests are queued for admin review — this app doesn't move real money yet, so every new request starts as <strong>Pending</strong>.</p>
+            </div>
+
             {/* Withdraw Modal */}
             {withdrawModalOpen && (
               <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl max-w-sm w-full p-6 flex flex-col gap-4 animate-scale-up relative">
-                  <button onClick={() => setWithdrawModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
-                  <h3 className="font-display text-sm font-bold text-slate-900">Withdraw Eco Earnings</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">Your funds will be routed to your linked bank account <strong>({bankDetails.bankName})</strong> immediately.</p>
+                  <button onClick={() => { setWithdrawModalOpen(false); setWithdrawalError(''); }} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+                  <h3 className="font-display text-sm font-bold text-slate-900">Request a Withdrawal</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">Your request will be routed to <strong>{bankDetails.bankName || bankDetails.upiId || 'your linked payout method'}</strong> for admin review.</p>
 
                   {withdrawalSuccess ? (
                     <div className="py-6 text-center flex flex-col items-center gap-2">
                       <Check className="w-8 h-8 text-emerald-600 bg-emerald-100 rounded-full p-1 mb-1" />
-                      <h4 className="text-xs font-bold text-slate-800">Transfer Completed Successfully!</h4>
+                      <h4 className="text-xs font-bold text-slate-800">Withdrawal Request Submitted!</h4>
                     </div>
                   ) : (
                     <form onSubmit={handleWithdrawalSubmit} className="flex flex-col gap-3">
                       <div className="flex flex-col gap-1">
-                        <label className="text-[9px] font-bold text-slate-500 uppercase">Amount to Transfer</label>
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Amount to Withdraw</label>
                         <input 
                           type="number" 
                           required
-                          max={customer.walletBalance}
+                          max={dashStats?.walletBalance ?? 0}
                           value={withdrawAmount}
                           onChange={(e) => setWithdrawAmount(e.target.value)}
-                          placeholder={`Max ₹${customer.walletBalance.toFixed(2)}`}
+                          placeholder={`Max ₹${(dashStats?.walletBalance ?? 0).toFixed(2)}`}
                           className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs font-mono focus:outline-none" 
                         />
                       </div>
-                      <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-2.5 rounded-xl shadow-md">
-                        Initiate Instant Transfer
+                      {withdrawalError && (
+                        <p className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2 text-center">{withdrawalError}</p>
+                      )}
+                      <button type="submit" disabled={withdrawalSubmitting} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-xs font-bold py-2.5 rounded-xl shadow-md">
+                        {withdrawalSubmitting ? 'Submitting...' : 'Submit Withdrawal Request'}
                       </button>
                     </form>
                   )}
@@ -1953,72 +2279,191 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
           </div>
         )}
 
-        {/* REWARDS STORE VIEW */}
-        {activeTab === 'rewards' && (
-          <div className="flex flex-col gap-6 animate-fade-in">
-            <div className="bg-gradient-to-r from-emerald-800 to-brand-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 shadow-xl">
+       {/* REWARDS STORE VIEW */}
+{activeTab === 'rewards' && (
+  <div className="flex flex-col gap-6 animate-fade-in">
+    <div className="bg-gradient-to-r from-emerald-800 to-brand-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 shadow-xl">
+      <div>
+        <span className="text-[9px] font-mono tracking-widest text-brand-300 font-bold uppercase">Gamified Sustainability</span>
+        <h1 className="text-xl sm:text-2xl font-display font-extrabold mt-1">The Eco Reward Store</h1>
+        <p className="text-xs text-brand-100 mt-1">Collect points from DIY crafts and recycling, redeem them for sustainable commodities.</p>
+      </div>
+
+      <div className="bg-brand-800/80 p-3.5 rounded-xl border border-brand-700 text-center shadow-md">
+        <span className="text-[9px] text-brand-200 font-bold uppercase tracking-wider font-mono">My Active Balance</span>
+        <p className="text-xl sm:text-2xl font-mono font-black text-brand-300">{dashStats?.rewardPoints ?? 0} XP</p>
+      </div>
+    </div>
+
+    {/* Dynamic Store List — real reward_products rows (Task 8.4) */}
+    {rwLoading ? (
+      <div className="text-center text-xs text-slate-400 py-10">Loading reward store...</div>
+    ) : rwRewardStore.length === 0 ? (
+      <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center text-xs text-slate-400">
+        No rewards are available in the store right now. Check back soon.
+      </div>
+    ) : (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {rwRewardStore.map((reward) => (
+          <div key={reward.id} className={`bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs hover:border-slate-300 flex flex-col ${!reward.available ? 'opacity-50' : ''}`}>
+            <img className="h-40 w-full object-cover" src={reward.image} alt={reward.name} />
+            <div className="p-4 flex-1 flex flex-col justify-between gap-4">
               <div>
-                <span className="text-[9px] font-mono tracking-widest text-brand-300 font-bold uppercase">Gamified Sustainability</span>
-                <h1 className="text-xl sm:text-2xl font-display font-extrabold mt-1">The Eco Reward Store</h1>
-                <p className="text-xs text-brand-100 mt-1">Collect points from DIY crafts and recycling, redeem them for sustainable commodities.</p>
+                <span className="text-[9px] font-bold text-brand-600 uppercase font-mono">{reward.category}</span>
+                <h4 className="text-xs font-bold text-slate-800 mt-1 leading-tight">{reward.name}</h4>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">{reward.description}</p>
               </div>
 
-              <div className="bg-brand-800/80 p-3.5 rounded-xl border border-brand-700 text-center shadow-md">
-                <span className="text-[9px] text-brand-200 font-bold uppercase tracking-wider font-mono">My Active Balance</span>
-                <p className="text-xl sm:text-2xl font-mono font-black text-brand-300">{customer.rewardPoints} XP</p>
+              <div className="flex items-center justify-between mt-auto pt-2 border-t border-slate-50">
+                <span className="font-mono text-xs font-bold text-slate-800">{reward.costPoints} XP</span>
+                <button
+                  onClick={() => handleRedeemReward(reward)}
+                  disabled={!reward.available || rwRedeeming === reward.id}
+                  className="bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition"
+                >
+                  {rwRedeeming === reward.id ? 'Redeeming...' : !reward.available ? 'Unavailable' : 'Redeem Item'}
+                </button>
               </div>
-            </div>
-
-            {/* Dynamic Store List */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {rewardStore.map((reward) => (
-                <div key={reward.id} className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs hover:border-slate-300 flex flex-col">
-                  <img className="h-40 w-full object-cover" src={reward.image} alt={reward.name} />
-                  <div className="p-4 flex-1 flex flex-col justify-between gap-4">
-                    <div>
-                      <span className="text-[9px] font-bold text-brand-600 uppercase font-mono">{reward.category}</span>
-                      <h4 className="text-xs font-bold text-slate-800 mt-1 leading-tight">{reward.name}</h4>
-                      <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">{reward.description}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between mt-auto pt-2 border-t border-slate-50">
-                      <span className="font-mono text-xs font-bold text-slate-800">{reward.costPoints} XP</span>
-                      <button 
-                        onClick={() => handleRedeemReward(reward)}
-                        className="bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition"
-                      >
-                        Redeem Item
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
-        )}
+        ))}
+      </div>
+    )}
 
+    {/* My Badges — Task 8.2, real achievements computed from real stats */}
+    <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs">
+      <h3 className="text-sm font-display font-extrabold text-slate-900 flex items-center gap-2">
+        <Award className="w-4 h-4 text-brand-600" /> My Badges
+      </h3>
+      {rwLoading ? (
+        <p className="text-xs text-slate-400 mt-3">Loading badges...</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mt-4">
+          {rwBadges.map((badge) => (
+            <div
+              key={badge.id}
+              className={`rounded-xl border p-3 flex flex-col items-center text-center gap-1.5 ${
+                badge.earned ? 'border-brand-200 bg-brand-50' : 'border-slate-100 bg-slate-50 opacity-60'
+              }`}
+            >
+              {badge.earned ? (
+                <Award className="w-6 h-6 text-brand-600" />
+              ) : (
+                <Lock className="w-6 h-6 text-slate-400" />
+              )}
+              <span className="text-[10px] font-bold text-slate-800 leading-tight">{badge.name}</span>
+              <span className="text-[9px] text-slate-400 leading-tight">{badge.description}</span>
+              {badge.earned && badge.earnedAt && (
+                <span className="text-[8px] font-mono text-brand-500">
+                  Earned {new Date(badge.earnedAt).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Leaderboard — Task 8.6, real top-10 by reward_points */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs">
+        <h3 className="text-sm font-display font-extrabold text-slate-900 flex items-center gap-2">
+          <Trophy className="w-4 h-4 text-amber-500" /> Community Leaderboard
+        </h3>
+        {rwLoading ? (
+          <p className="text-xs text-slate-400 mt-3">Loading leaderboard...</p>
+        ) : rwLeaderboard.length === 0 ? (
+          <p className="text-xs text-slate-400 mt-3">No leaderboard data yet.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5 mt-4">
+            {rwLeaderboard.map((entry) => (
+              <div
+                key={entry.rank}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${
+                  entry.isYou ? 'bg-brand-50 border border-brand-200 font-bold text-brand-700' : 'text-slate-600'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="font-mono w-5 text-slate-400">#{entry.rank}</span>
+                  {entry.displayName} {entry.isYou && '(You)'}
+                </span>
+                <span className="font-mono font-bold">{entry.rewardPoints} XP</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Reward History — Task 8.3, real redemption ledger */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs">
+        <h3 className="text-sm font-display font-extrabold text-slate-900 flex items-center gap-2">
+          <History className="w-4 h-4 text-slate-500" /> Reward History
+        </h3>
+        {rwLoading ? (
+          <p className="text-xs text-slate-400 mt-3">Loading history...</p>
+        ) : rwRedemptionHistory.length === 0 ? (
+          <p className="text-xs text-slate-400 mt-3">You haven't redeemed any rewards yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2 mt-4 max-h-72 overflow-y-auto">
+            {rwRedemptionHistory.map((r) => (
+              <div key={r.id} className="flex items-center justify-between text-xs border-b border-slate-50 pb-2">
+                <div>
+                  <p className="font-bold text-slate-700">{r.rewardName}</p>
+                  <p className="text-[10px] text-slate-400">{new Date(r.redeemedAt).toLocaleString()}</p>
+                </div>
+                <span className="font-mono font-bold text-brand-600">-{r.costPoints} XP</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
         {/* DIY PROJECTS VIEW */}
         {activeTab === 'diy-projects' && (
           <div className="max-w-3xl mx-auto flex flex-col gap-6 animate-fade-in">
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs">
-              <h1 className="text-lg font-display font-extrabold text-slate-900">Submit DIY Eco Craft</h1>
-              <p className="text-xs text-slate-500 mt-0.5">Submit designs where you repurposed household waste into items. Earn up to 200 XP points upon administrative review.</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-lg font-display font-extrabold text-slate-900">
+                    {editingDiyId !== null ? 'Edit DIY Eco Craft' : 'Submit DIY Eco Craft'}
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {editingDiyId !== null
+                      ? 'You can edit this submission until it has been reviewed.'
+                      : 'Submit designs where you repurposed household waste into items. Earn Eco Points upon administrative review.'}
+                  </p>
+                </div>
+                {editingDiyId !== null && (
+                  <button onClick={handleCancelEditDIY} className="text-[10px] font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1">
+                    <X className="w-3 h-3" /> Cancel edit
+                  </button>
+                )}
+              </div>
 
               {diySuccess ? (
                 <div className="py-12 text-center flex flex-col items-center gap-3">
                   <CheckCircle2 className="w-10 h-10 text-emerald-600" />
-                  <h3 className="text-sm font-bold text-slate-800 font-display">DIY Craft Submitted!</h3>
+                  <h3 className="text-sm font-bold text-slate-800 font-display">
+                    {editingDiyId !== null ? 'DIY Craft Updated!' : 'DIY Craft Submitted!'}
+                  </h3>
                   <p className="text-xs text-slate-400">Our content auditors will review your craft before adding it to the community lobby.</p>
                 </div>
               ) : (
                 <form onSubmit={handleDIYSubmit} className="flex flex-col gap-4 mt-4">
+                  {diyError && (
+                    <div className="bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold rounded-lg p-2.5 flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5" /> {diyError}
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Project Name</label>
                     <input type="text" required placeholder="e.g. Plastic Bottle Hanging Planters" value={newDIY.name} onChange={(e) => setNewDIY({ ...newDIY, name: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-500 uppercase">Description & Guide</label>
-                    <textarea rows={3} placeholder="How did you build it? What waste was repurposed? Describe..." value={newDIY.description} onChange={(e) => setNewDIY({ ...newDIY, description: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"></textarea>
+                    <textarea rows={3} required placeholder="How did you build it? What waste was repurposed? Describe..." value={newDIY.description} onChange={(e) => setNewDIY({ ...newDIY, description: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"></textarea>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
@@ -2030,48 +2475,87 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                       <input type="text" placeholder="Diverts plastic, adds greenery" value={newDIY.benefits} onChange={(e) => setNewDIY({ ...newDIY, benefits: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                     </div>
                   </div>
-                  
-                  {/* Before / After Images url input mock */}
+
+                  {/* Before / After Images — real file uploads (Task 9.2) */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase">Before Photo (URL)</label>
-                      <input type="text" value={newDIY.beforeImage} onChange={(e) => setNewDIY({ ...newDIY, beforeImage: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono" />
+                      <label className="text-[10px] font-bold text-slate-500 uppercase">Before Photo</label>
+                      {newDIY.beforeImagePreview && (
+                        <img src={newDIY.beforeImagePreview} alt="before preview" className="h-20 w-full object-cover rounded-lg border border-slate-200 mb-1" />
+                      )}
+                      <label className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-50 border border-dashed border-slate-300 rounded-lg p-2 cursor-pointer hover:bg-slate-100">
+                        <Upload className="w-3.5 h-3.5" /> {newDIY.beforeImageFile ? newDIY.beforeImageFile.name : 'Choose photo'}
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleDIYImageChange('before', e)} />
+                      </label>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase">After Photo (URL)</label>
-                      <input type="text" value={newDIY.afterImage} onChange={(e) => setNewDIY({ ...newDIY, afterImage: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono" />
+                      <label className="text-[10px] font-bold text-slate-500 uppercase">After Photo</label>
+                      {newDIY.afterImagePreview && (
+                        <img src={newDIY.afterImagePreview} alt="after preview" className="h-20 w-full object-cover rounded-lg border border-slate-200 mb-1" />
+                      )}
+                      <label className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-50 border border-dashed border-slate-300 rounded-lg p-2 cursor-pointer hover:bg-slate-100">
+                        <Upload className="w-3.5 h-3.5" /> {newDIY.afterImageFile ? newDIY.afterImageFile.name : 'Choose photo'}
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleDIYImageChange('after', e)} />
+                      </label>
                     </div>
                   </div>
 
-                  <button type="submit" className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md">
-                    Submit DIY Project
+                  <button type="submit" disabled={dySubmitting} className="bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md">
+                    {dySubmitting ? 'Saving...' : editingDiyId !== null ? 'Save Changes' : 'Submit DIY Project'}
                   </button>
                 </form>
               )}
             </div>
 
-            {/* MY PAST SUBMISSIONS */}
+            {/* MY PAST SUBMISSIONS — Task 9.3 (Project history) + 9.4 (Approval status) */}
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">My Submitted Craft Challenges</h3>
-              <div className="flex flex-col gap-3">
-                {diyProjects.filter(p => p.customerId === customer.id).map((p) => (
-                  <div key={p.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs gap-3">
-                    <div className="flex items-center gap-3">
-                      <img className="w-10 h-10 object-cover rounded-lg border border-slate-200 shadow-xs" src={p.afterImage} alt="craft" />
-                      <div>
-                        <h4 className="font-bold text-slate-800">{p.projectName}</h4>
-                        <p className="text-[9px] text-slate-400 font-mono">Submitted: {p.createdAt.slice(0, 10)}</p>
+
+              {dyLoading ? (
+                <p className="text-xs text-slate-400">Loading your submissions...</p>
+              ) : dyMyProjects.length === 0 ? (
+                <p className="text-xs text-slate-400">You haven't submitted any DIY crafts yet.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {dyMyProjects.map((p) => (
+                    <div key={p.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {p.afterImage ? (
+                          <img className="w-10 h-10 object-cover rounded-lg border border-slate-200 shadow-xs shrink-0" src={p.afterImage} alt="craft" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-center shrink-0">
+                            <Sparkles className="w-4 h-4 text-slate-300" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-slate-800 truncate">{p.projectName}</h4>
+                          <p className="text-[9px] text-slate-400 font-mono">Submitted: {p.createdAt.slice(0, 10)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                            p.status === 'Approved' ? 'bg-emerald-50 text-emerald-700'
+                              : p.status === 'Rejected' ? 'bg-red-50 text-red-600'
+                              : 'bg-amber-50 text-amber-700'
+                          }`}>{p.status}</span>
+                          {p.status === 'Approved' && <p className="text-[10px] text-brand-600 font-bold mt-1">+{p.rewardEarned} XP Earned</p>}
+                        </div>
+                        {p.status === 'Pending' && (
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => handleEditDIYProject(p)} title="Edit" className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDeleteDIYProject(p)} title="Delete" className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                        p.status === 'Approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                      }`}>{p.status}</span>
-                      {p.status === 'Approved' && <p className="text-[10px] text-brand-600 font-bold mt-1">+{p.rewardEarned} XP Earned</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2084,17 +2568,75 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
               <p className="text-xs text-slate-500">Discover and discuss amazing home-recycling crafts designed by eco-heroes globally.</p>
             </div>
 
+            {/* Search + Filter + Sort (tasks 10.2 / 10.3) */}
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search crafts, materials, or eco-heroes..."
+                  value={communitySearch}
+                  onChange={(e) => setCommunitySearch(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                />
+              </div>
+              <select
+                value={communityMaterialFilter}
+                onChange={(e) => setCommunityMaterialFilter(e.target.value)}
+                className="bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-semibold text-slate-600"
+              >
+                <option value="All">All Materials</option>
+                {communityMaterials.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <select
+                value={communitySort}
+                onChange={(e) => setCommunitySort(e.target.value as typeof communitySort)}
+                className="bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-semibold text-slate-600"
+              >
+                <option value="newest">Newest First</option>
+                <option value="most-liked">Most Liked</option>
+                <option value="most-discussed">Most Discussed</option>
+              </select>
+            </div>
+
+            {cmLoading && (
+              <div className="text-center py-16 text-xs text-slate-400 font-semibold">Loading the community showcase...</div>
+            )}
+
+            {!cmLoading && cmFeed.length === 0 && (
+              <div className="text-center py-16 bg-white rounded-2xl border border-slate-100">
+                <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-bold text-slate-600">No approved crafts yet</p>
+                <p className="text-[10px] text-slate-400 mt-1">Once an admin approves a DIY submission, it'll appear here for everyone to see.</p>
+              </div>
+            )}
+
+            {!cmLoading && cmFeed.length > 0 && filteredCommunityFeed.length === 0 && (
+              <div className="text-center py-16 bg-white rounded-2xl border border-slate-100">
+                <Search className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-bold text-slate-600">No crafts match your search/filter</p>
+                <button
+                  onClick={() => { setCommunitySearch(''); setCommunityMaterialFilter('All'); }}
+                  className="text-[10px] text-brand-600 font-bold mt-2 hover:underline"
+                >
+                  Clear search & filter
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {diyProjects.map((proj) => (
+              {filteredCommunityFeed.map((proj) => (
                 <div key={proj.id} className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs flex flex-col">
                   {/* Before/After side-by-side splits */}
                   <div className="grid grid-cols-2 gap-0.5 bg-slate-200">
                     <div className="relative">
-                      <img className="h-44 w-full object-cover" src={proj.beforeImage} alt="before" />
+                      <img className="h-44 w-full object-cover" src={proj.beforeImage ?? undefined} alt="before" />
                       <span className="absolute bottom-2 left-2 bg-slate-900/80 text-white text-[8px] font-bold px-1.5 py-0.5 rounded font-mono uppercase">Before</span>
                     </div>
                     <div className="relative">
-                      <img className="h-44 w-full object-cover" src={proj.afterImage} alt="after" />
+                      <img className="h-44 w-full object-cover" src={proj.afterImage ?? undefined} alt="after" />
                       <span className="absolute bottom-2 left-2 bg-brand-600/90 text-white text-[8px] font-bold px-1.5 py-0.5 rounded font-mono uppercase">After</span>
                     </div>
                   </div>
@@ -2103,7 +2645,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                     <div>
                       <div className="flex items-center justify-between">
                         <span className="text-[9px] font-bold text-slate-400 font-mono">CRAFT ID: {proj.id}</span>
-                        <span className="text-[10px] text-slate-400">By <strong>{proj.customerName}</strong></span>
+                        <span className="text-[10px] text-slate-400">By <strong>{proj.authorName}</strong></span>
                       </div>
                       <h4 className="text-xs sm:text-sm font-bold text-slate-800 mt-1 leading-tight">{proj.projectName}</h4>
                       <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">{proj.projectDescription}</p>
@@ -2116,50 +2658,133 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                       ))}
                     </div>
 
-                    {/* Like & comments counter */}
-                    <div className="flex items-center gap-4 border-t border-b border-slate-50 py-2 mt-1">
-                      <button 
+                    {/* Like, Save, Share, Comment toggle, Report */}
+                    <div className="flex items-center gap-3 border-t border-b border-slate-50 py-2 mt-1 flex-wrap">
+                      <button
                         onClick={() => handleLikeDIY(proj.id)}
-                        className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-brand-600 font-bold transition"
+                        className={`flex items-center gap-1.5 text-[10px] font-bold transition ${proj.isLikedByMe ? 'text-brand-600' : 'text-slate-500 hover:text-brand-600'}`}
                       >
-                        <ThumbsUp className="w-3.5 h-3.5 text-slate-400" /> Like ({proj.likes})
+                        <ThumbsUp className={`w-3.5 h-3.5 ${proj.isLikedByMe ? 'text-brand-600 fill-brand-600' : 'text-slate-400'}`} /> Like ({proj.likes})
                       </button>
-                      <span className="flex items-center gap-1 text-[10px] text-slate-400">
-                        <MessageSquare className="w-3.5 h-3.5" /> Comments ({proj.comments.length})
-                      </span>
+                      <button
+                        onClick={() => handleToggleCommentsFor(proj.id)}
+                        className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-brand-600 font-bold transition"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" /> Comments ({proj.commentCount})
+                      </button>
+                      <button
+                        onClick={() => handleToggleSave(proj.id)}
+                        className={`flex items-center gap-1 text-[10px] font-bold transition ${proj.isSavedByMe ? 'text-amber-600' : 'text-slate-500 hover:text-amber-600'}`}
+                      >
+                        <Bookmark className={`w-3.5 h-3.5 ${proj.isSavedByMe ? 'text-amber-600 fill-amber-500' : 'text-slate-400'}`} /> {proj.isSavedByMe ? 'Saved' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => handleShareProject(proj)}
+                        className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-brand-600 font-bold transition"
+                      >
+                        <Share2 className="w-3.5 h-3.5" /> {copiedShareId === proj.id ? 'Link copied!' : 'Share'}
+                      </button>
+                      <button
+                        onClick={() => handleOpenReport(proj.id)}
+                        className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-rose-600 font-bold transition ml-auto"
+                        title="Report this craft"
+                      >
+                        <Flag className="w-3.5 h-3.5" />
+                      </button>
                     </div>
 
-                    {/* Comments list */}
-                    <div className="flex flex-col gap-2 max-h-36 overflow-y-auto pr-1">
-                      {proj.comments.map((com) => (
-                        <div key={com.id} className="bg-slate-50 p-2 rounded-xl text-[10px] leading-relaxed border border-slate-100/30">
-                          <p className="text-slate-800 font-semibold">{com.userName}</p>
-                          <p className="text-slate-500 mt-0.5">{com.text}</p>
+                    {/* Comments list — lazy-loaded on first expand */}
+                    {expandedCommentsId === proj.id && (
+                      <>
+                        <div className="flex flex-col gap-2 max-h-36 overflow-y-auto pr-1">
+                          {cmCommentsLoading[proj.id] && (
+                            <p className="text-[10px] text-slate-400 text-center py-2">Loading comments...</p>
+                          )}
+                          {!cmCommentsLoading[proj.id] && (cmCommentsByProject[proj.id]?.length ?? 0) === 0 && (
+                            <p className="text-[10px] text-slate-400 text-center py-2">No comments yet — be the first to say something nice!</p>
+                          )}
+                          {(cmCommentsByProject[proj.id] ?? []).map((com) => (
+                            <div key={com.id} className="bg-slate-50 p-2 rounded-xl text-[10px] leading-relaxed border border-slate-100/30">
+                              <p className="text-slate-800 font-semibold">{com.userName}</p>
+                              <p className="text-slate-500 mt-0.5">{com.text}</p>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
 
-                    {/* Write comment */}
-                    <div className="flex gap-1.5 mt-auto">
-                      <input 
-                        type="text" 
-                        placeholder="Type an eco-friendly comment..."
-                        value={newComment[proj.id] || ''}
-                        onChange={(e) => setNewComment({ ...newComment, [proj.id]: e.target.value })}
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-1 px-2.5 text-[10px] focus:outline-none" 
-                      />
-                      <button 
-                        onClick={() => handleAddComment(proj.id)}
-                        className="bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-bold px-3 py-1 rounded-lg transition"
-                      >
-                        Add
-                      </button>
-                    </div>
-
+                        {/* Write comment */}
+                        <div className="flex gap-1.5 mt-auto">
+                          <input
+                            type="text"
+                            placeholder="Type an eco-friendly comment..."
+                            value={newComment[proj.id] || ''}
+                            onChange={(e) => setNewComment({ ...newComment, [proj.id]: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(proj.id); }}
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-1 px-2.5 text-[10px] focus:outline-none"
+                          />
+                          <button
+                            onClick={() => handleAddComment(proj.id)}
+                            disabled={cmPostingComment}
+                            className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-[10px] font-bold px-3 py-1 rounded-lg transition"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* Report Modal (task 10.8) */}
+            {reportModalProjectId !== null && (
+              <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4" onClick={() => setReportModalProjectId(null)}>
+                <div className="bg-white rounded-2xl p-5 w-full max-w-sm flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5"><Flag className="w-4 h-4 text-rose-500" /> Report this craft</h3>
+                    <button onClick={() => setReportModalProjectId(null)}><X className="w-4 h-4 text-slate-400" /></button>
+                  </div>
+
+                  {reportSuccess ? (
+                    <p className="text-xs text-emerald-600 bg-emerald-50 py-2 px-3 rounded-lg font-bold">✓ Report submitted. Our team will review it shortly.</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Reason</label>
+                        <select
+                          value={reportReason}
+                          onChange={(e) => setReportReason(e.target.value as ReportReason)}
+                          className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
+                        >
+                          <option>Inappropriate Content</option>
+                          <option>Spam</option>
+                          <option>Misleading Information</option>
+                          <option>Copyright Issue</option>
+                          <option>Other</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Additional details (optional)</label>
+                        <textarea
+                          value={reportDetails}
+                          onChange={(e) => setReportDetails(e.target.value)}
+                          rows={3}
+                          className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs resize-none"
+                          placeholder="Tell us more..."
+                        />
+                      </div>
+                      <button
+                        onClick={handleSubmitReport}
+                        disabled={cmReporting}
+                        className="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold py-2 rounded-xl transition"
+                      >
+                        {cmReporting ? 'Submitting...' : 'Submit Report'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2167,54 +2792,73 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
         {activeTab === 'profile' && (
           <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-100 p-6 flex flex-col gap-6 animate-fade-in shadow-xl">
             <div className="flex flex-col sm:flex-row items-center gap-5 border-b border-slate-100 pb-5">
-              <img className="w-16 h-16 rounded-full object-cover border-2 border-brand-500 shadow-md" src={customer.profilePic} alt="profile" />
+              <div className="relative shrink-0">
+                <img className="w-16 h-16 rounded-full object-cover border-2 border-brand-500 shadow-md" src={pfProfile?.profilePicUrl || customer.profilePic} alt="profile" />
+                <label htmlFor="profile-picture-upload" className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-brand-600 hover:bg-brand-700 text-white flex items-center justify-center cursor-pointer border-2 border-white shadow-sm">
+                  <Pencil className="w-3 h-3" />
+                </label>
+                <input id="profile-picture-upload" type="file" accept="image/*" className="hidden" onChange={handleProfilePictureSelected} disabled={pfUploadingPicture} />
+              </div>
               <div className="text-center sm:text-left">
-                <h2 className="text-base font-bold text-slate-800">{customer.name}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{customer.email} · ID: {customer.id}</p>
-                <span className="inline-block bg-brand-50 text-brand-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full mt-1.5">★ Gold Level Sustainability Hero</span>
+                <h2 className="text-base font-bold text-slate-800">{pfProfile?.fullName ?? customer.name}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{pfProfile?.email ?? customer.email} · ID: {pfProfile?.displayCode ?? customer.id}</p>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 mt-1.5">
+                  <span className="inline-block bg-brand-50 text-brand-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full">★ Gold Level Sustainability Hero</span>
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${pfEmailVerified ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                    {pfEmailVerified ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                    {pfEmailVerified ? 'Email Verified' : 'Email Not Verified'}
+                  </span>
+                  <span className="inline-block bg-slate-100 text-slate-600 text-[10px] font-bold px-2.5 py-0.5 rounded-full">{pfProfile?.status ?? 'Active'}</span>
+                </div>
+                {pfUploadingPicture && <p className="text-[10px] text-slate-400 mt-1">Uploading photo…</p>}
+                {pfPictureError && <p className="text-[10px] text-rose-600 mt-1">{pfPictureError}</p>}
               </div>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); alert("Profile successfully updated in local state!"); }} className="flex flex-col gap-4">
+            <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Personal Contact Information</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Full Name</label>
-                  <input type="text" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <input type="text" value={pfForm.fullName} onChange={(e) => setPfForm({ ...pfForm, fullName: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Phone Number</label>
-                  <input type="text" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <input type="text" value={pfForm.phone} onChange={(e) => setPfForm({ ...pfForm, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                 </div>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Email Address</label>
-                <input type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                <input type="email" value={pfProfile?.email ?? customer.email} readOnly disabled className="bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs text-slate-400 cursor-not-allowed" />
+                <span className="text-[9px] text-slate-400">Email address changes aren't supported yet.</span>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Street Address</label>
-                <input type="text" value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                <input type="text" value={pfForm.address} onChange={(e) => setPfForm({ ...pfForm, address: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">City</label>
-                  <input type="text" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <input type="text" value={pfForm.city} onChange={(e) => setPfForm({ ...pfForm, city: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">State</label>
-                  <input type="text" value={customer.state} onChange={(e) => setCustomer({ ...customer, state: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <input type="text" value={pfForm.state} onChange={(e) => setPfForm({ ...pfForm, state: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Pincode</label>
-                  <input type="text" value={customer.pincode} onChange={(e) => setCustomer({ ...customer, pincode: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <input type="text" value={pfForm.pincode} onChange={(e) => setPfForm({ ...pfForm, pincode: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                 </div>
               </div>
 
-              <button type="submit" id="save-profile-btn" className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-sm text-center mt-2">
-                Save Profile Changes
+              {pfError && <p className="text-xs text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg font-bold">{pfError}</p>}
+              {pfSuccess && <p className="text-xs text-emerald-600 bg-emerald-50 py-1.5 px-3 rounded-lg font-bold">✓ Profile updated successfully.</p>}
+
+              <button type="submit" id="save-profile-btn" disabled={pfSaving} className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-sm text-center mt-2">
+                {pfSaving ? 'Saving...' : 'Save Profile Changes'}
               </button>
             </form>
           </div>
@@ -2237,27 +2881,42 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                 <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col gap-4" id="settings-personal-info">
                   <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono border-b pb-1">Personal Account Profile</h3>
                   <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100/60">
-                    <img className="w-12 h-12 rounded-full object-cover border-2 border-brand-500 shadow-xs" src={customer.profilePic} alt="preset" />
+                    <div className="relative shrink-0">
+                      <img className="w-12 h-12 rounded-full object-cover border-2 border-brand-500 shadow-xs" src={pfProfile?.profilePicUrl || customer.profilePic} alt="preset" />
+                      <label htmlFor="profile-picture-upload-settings" className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-brand-600 hover:bg-brand-700 text-white flex items-center justify-center cursor-pointer border-2 border-white shadow-sm">
+                        <Pencil className="w-2.5 h-2.5" />
+                      </label>
+                      <input id="profile-picture-upload-settings" type="file" accept="image/*" className="hidden" onChange={handleProfilePictureSelected} disabled={pfUploadingPicture} />
+                    </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-800">{customer.name}</p>
-                      <p className="text-[10px] text-slate-400 font-mono">{customer.email}</p>
-                      <span className="text-[8px] font-mono bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded font-bold uppercase mt-1 inline-block">ID: {customer.id}</span>
+                      <p className="text-xs font-bold text-slate-800">{pfProfile?.fullName ?? customer.name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{pfProfile?.email ?? customer.email}</p>
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        <span className="text-[8px] font-mono bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded font-bold uppercase inline-block">ID: {pfProfile?.displayCode ?? customer.id}</span>
+                        <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded font-bold uppercase inline-flex items-center gap-0.5 ${pfEmailVerified ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                          {pfEmailVerified ? <Check className="w-2.5 h-2.5" /> : <AlertTriangle className="w-2.5 h-2.5" />}
+                          {pfEmailVerified ? 'Verified' : 'Unverified'}
+                        </span>
+                      </div>
+                      {pfPictureError && <p className="text-[9px] text-rose-600 mt-1">{pfPictureError}</p>}
                     </div>
                   </div>
 
-                  <form onSubmit={(e) => { e.preventDefault(); alert("Profile successfully updated in local state!"); }} className="flex flex-col gap-3">
+                  <form onSubmit={handleSaveProfile} className="flex flex-col gap-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="flex flex-col gap-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase font-mono">Full name</label>
-                        <input type="text" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                        <input type="text" value={pfForm.fullName} onChange={(e) => setPfForm({ ...pfForm, fullName: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                       </div>
                       <div className="flex flex-col gap-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase font-mono">Mobile</label>
-                        <input type="text" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                        <input type="text" value={pfForm.phone} onChange={(e) => setPfForm({ ...pfForm, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                       </div>
                     </div>
-                    <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold py-2 rounded-lg transition self-start px-4">
-                      Update Account Details
+                    {pfError && <p className="text-[10px] text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg font-bold">{pfError}</p>}
+                    {pfSuccess && <p className="text-[10px] text-emerald-600 bg-emerald-50 py-1.5 px-3 rounded-lg font-bold">✓ Account details updated.</p>}
+                    <button type="submit" disabled={pfSaving} className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-[10px] font-bold py-2 rounded-lg transition self-start px-4">
+                      {pfSaving ? 'Saving...' : 'Update Account Details'}
                     </button>
                   </form>
                 </div>
@@ -2280,6 +2939,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                         <input type="password" value={pwdState.confirm} onChange={(e) => setPwdState({ ...pwdState, confirm: e.target.value })} placeholder="••••••••" className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
                       </div>
                     </div>
+                    {pwdError && <p className="text-xs text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg font-bold">{pwdError}</p>}
                     {pwdSuccess && <p className="text-xs text-emerald-600 bg-emerald-50 py-1.5 px-3 rounded-lg font-bold">✓ Password updated successfully.</p>}
                     <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold py-2 rounded-lg transition self-start px-4">
                       Update Password
@@ -2321,7 +2981,7 @@ export default function CustomerModule({ onLogout }: CustomerModuleProps) {
                   
                   {/* List of existing saved addresses */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {savedAddresses.map((adr) => (
+                    {pfAddresses.map((adr) => (
                       <div key={adr.id} className={`p-3.5 rounded-xl border flex flex-col gap-2 relative ${adr.isDefault ? 'border-brand-300 bg-brand-50/20' : 'border-slate-100 bg-slate-50/50'}`}>
                         {adr.isDefault && (
                           <span className="absolute top-3 right-3 text-[8px] bg-brand-600 text-white font-bold uppercase tracking-wider px-2 py-0.5 rounded-full font-mono">Default</span>

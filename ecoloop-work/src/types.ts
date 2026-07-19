@@ -205,6 +205,41 @@ export interface RewardProduct {
   available: boolean;
 }
 
+// ============================================================================
+// MODULE 8 — REWARDS TYPES
+// ============================================================================
+
+/** Mirrors a row returned by reading `reward_redemptions` (task 8.3). */
+export interface RewardRedemption {
+  id: number;
+  rewardId: number;
+  rewardName: string;
+  rewardImage: string;
+  costPoints: number;
+  redeemedAt: string;
+}
+
+/** Mirrors a row in `public.badges` — the achievement catalog (task 8.2). */
+export interface Badge {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  icon: string; // lucide-react icon name
+  metric: 'completed_pickups' | 'approved_diy_projects' | 'reward_redemptions' | 'total_earnings';
+  thresholdValue: number;
+  earned: boolean;
+  earnedAt: string | null;
+}
+
+/** One row of the `get_leaderboard` RPC result (task 8.6). */
+export interface LeaderboardEntry {
+  rank: number;
+  displayName: string;
+  rewardPoints: number;
+  isYou: boolean;
+}
+
 export interface NotificationItem {
   id: string;
   userId: string; // 'all' for broadcasts or specific role

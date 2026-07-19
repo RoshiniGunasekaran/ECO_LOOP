@@ -33,3 +33,506 @@ Here's the full cumulative checklist — everything you should manually verify i
 - Click through every other Customer tab (Create Pickup, Pickups, Wallet, Rewards, DIY, Community, Settings, Support) → confirm they still look and work exactly as before — untouched by Module 5.
 
 Once all of these pass, your app is verified end-to-end through Module 5. Ready for **Module 6 — Pickup Management** whenever you are.
+
+**Module 6 — Pickup Management**
+- Go to **Create Pickup**, fill in a full request, attach 1–3 waste photos, and submit → confirm the "Pickup Request Registered!" success screen appears and you land back on **My Pickup Requests** with the new request showing.
+- In Supabase Table Editor: confirm a new row exists in `pickup_requests` with your real values (not a mock REQ id), and matching rows exist in `pickup_images` — open one `image_url` in a new browser tab and confirm the photo actually loads from the `pickup-photos` bucket.
+- Open that pickup (**Manage & Track**) → confirm every field (category, sub-category, weight, condition, address, date/time, estimated payout) matches exactly what you submitted.
+- While the pickup is still **Pending**, edit it (change the weight or address) → refresh → confirm the change persisted in Supabase.
+- In Supabase, manually set that pickup's `status` to `Assigned` and its `partner_id` to any real `profiles.id` → refresh the **Dashboard** → confirm the "Live Tracking Active" banner now appears and shows that partner's real name (not "Driver Daniel Cruz").
+- From the pickup's detail card, click **Cancel Pickup Request** on a Pending/Assigned pickup → confirm its status becomes `Cancelled` in Supabase and the Cancel button disappears afterward.
+- In Supabase, manually set a pickup's `status` to `Completed` → refresh → confirm the tax invoice preview appears, then submit a star rating + comment → confirm a row appears in `pickup_feedback` and the form is replaced by your read-only feedback card on next view.
+- On **My Pickup Requests**, test the search box, the status filter, the category filter, and the sort order → confirm the real list filters/sorts correctly for all of them.
+- Click **Export Log (CSV)** → confirm the downloaded file lists your real pickups.
+- Click through every other Customer tab (Wallet, Rewards, DIY, Community, Settings, Support) → confirm they still look and work exactly as before — untouched by Module 6.
+
+Once all of these pass, your app is verified end-to-end through Module 6. Ready for **Module 7 — Wallet** whenever you are.
+
+**Module 7 — Wallet**
+- Go to **Wallet** → confirm the balance shown matches `customer_profiles.wallet_balance` for your user in Supabase.
+- Fill in the bank + UPI form and click **Update Account Details** → confirm it shows "Saving..." then "Saved ✓" → confirm a row now exists in `payout_methods` in Supabase with your real values.
+- Refresh the page → confirm the form reloads with the same saved values, not blank and not old placeholder text.
+- If your balance is 0, manually set `wallet_balance` to something like `250.00` in `customer_profiles` for testing, then refresh.
+- Click **Withdraw to Bank account**, enter an amount **larger** than your balance → confirm it's rejected with an error and no row is created in `withdrawal_requests`.
+- Enter a valid amount and submit → confirm "Withdrawal Request Submitted!" appears, and confirm a new `withdrawal_requests` row exists with `status = 'Pending'`.
+- Refresh **Wallet** → confirm the new request shows under **Withdrawal Request History** with a Pending badge, and confirm your `wallet_balance` has **not** changed (this is expected — no admin approval flow exists yet).
+- In Supabase, manually insert a row into `transactions` for your user (`type = 'Credit'`, any amount) → refresh **Wallet** → confirm it appears in the Payout Logs Ledger.
+- Click through every other Customer tab (Dashboard, Create Pickup, Pickups, Rewards, DIY, Community, Settings, Support) → confirm they still look and work exactly as before — untouched by Module 7.
+
+# MODULE 8 — REWARDS — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module8_rewards_schema.sql` and the
+`CustomerModule.tsx` / `types.ts` changes from
+`MODULE_8_IMPLEMENTATION_GUIDE.md`. Written in the same style as the
+existing `docs/Manual_Check_Module_wise` log — append this section right
+after the Module 7 entry once it all passes.
+
+## Pre-flight
+- [ ] `supabase/module8_rewards_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In Table Editor, confirm `badges` now has 8 rows, and `reward_products` has at least one row with `available = true` (add one manually if empty — this table has no seed data from Module 3).
+- [ ] `npx tsc --noEmit` → 0 errors.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no console errors.
+
+## Step-by-step Testing
+
+### 1. Reward points balance (Task 8.1)
+- Log in as your test Customer account, go to **Rewards Store**.
+- Confirm **My Active Balance** matches `customer_profiles.reward_points` for your user in Supabase Table Editor.
+- **Expected result:** the number shown is the real column value, not a mock/hardcoded number.
+
+### 2. Reward store loads for real (Task 8.4)
+- Confirm every reward card shown matches a real row in `reward_products` (same name, description, image, category, cost).
+- In Supabase, add a new row to `reward_products` with `available = true` → refresh the Rewards tab.
+- **Expected result:** the new reward appears in the store without any code change.
+- In Supabase, set one reward's `available` to `false` → refresh.
+- **Expected result:** that card appears dimmed, its button reads "Unavailable" and is disabled.
+- Delete all rows from `reward_products` (or filter to none available) → refresh.
+- **Expected result:** the "No rewards are available in the store right now" empty state appears instead of a blank grid.
+
+### 3. Redeeming a reward (Task 8.5)
+- Make sure your `customer_profiles.reward_points` is high enough to afford at least one reward (edit it manually in Supabase if needed for testing).
+- Click **Redeem Item** on an affordable reward → confirm the browser `confirm()` prompt appears with the correct reward name and cost.
+- Confirm the redemption → confirm the button shows "Redeeming..." briefly, then a success alert appears.
+- **Supabase tables to verify:**
+  - `customer_profiles.reward_points` has decreased by exactly the reward's `cost_points`.
+  - A new row exists in `transactions` with `type = 'Reward'`, `points` equal to the cost, and a description like "Redeemed <reward name>".
+  - A new row exists in `reward_redemptions` with the same `cost_points`, a `reward_snapshot` matching what you redeemed, and a `transaction_id` pointing at the row above.
+- Refresh the **Rewards Store** tab → confirm **My Active Balance** reflects the new, lower value (this requires the dashboard refresh wired in the guide — if the balance looks stale, re-check step 8.4 of the implementation guide).
+- Try to redeem a reward that costs **more** than your current balance.
+- **Expected result:** rejected client-side with an "Insufficient Eco Points!" message stating exactly how many more points are needed, and no row is created in `reward_redemptions` or `transactions`.
+- (Optional, to test server-side enforcement) In Supabase, temporarily disable the client check isn't possible from the UI — instead confirm by inspection that `redeem_reward()` re-checks the balance itself (see the SQL) so even a modified frontend can't bypass it.
+- Set a reward's `available` to `false` in Supabase, then try to redeem it before the UI refreshes (e.g. via dev tools) — confirm the RPC itself rejects it with "This reward is currently unavailable." if somehow called anyway.
+
+### 4. Reward history (Task 8.3)
+- After completing at least one redemption above, look at the **Reward History** card.
+- **Expected result:** it lists the reward name, a real timestamp, and `-<cost> XP`, newest first.
+- With zero redemptions on a fresh test account, confirm the "You haven't redeemed any rewards yet." empty state appears.
+
+### 5. Badges (Task 8.2)
+- Go to **My Badges**. With a fresh account (0 completed pickups, 0 approved DIY, 0 redemptions, 0 total earnings), confirm every badge shows locked (grey, lock icon).
+- In Supabase, manually set a `pickup_requests` row's `status` to `Completed` for your customer (or complete one for real via Module 6) → refresh **Rewards Store**.
+- **Expected result:** the "First Drop-off" badge switches to earned (brand-colored, award icon, "Earned <date>" caption), and a new row appears in `customer_badges` for your user.
+- Redeem your first reward (if not already done in step 3) → refresh.
+- **Expected result:** "First Redemption" badge becomes earned.
+- Manually set `customer_profiles.total_earnings` to `5000` or higher → refresh.
+- **Expected result:** "High Earner" badge becomes earned.
+- Reload the page a second time after all badges above are earned.
+- **Expected result:** no duplicate rows are created in `customer_badges` (the function's `on conflict do nothing` prevents re-awarding).
+
+### 6. Leaderboard (Task 8.6)
+- Go to **Community Leaderboard**. Confirm your own row is highlighted (brand-colored background) and labeled "(You)".
+- In Supabase, set `reward_points` for 2–3 other real profiles (or create test customer accounts) to different values → refresh.
+- **Expected result:** the leaderboard re-orders correctly, highest points first, with correct sequential `#rank` numbers.
+- Inspect the displayed names.
+- **Expected result:** each shows a `display_code` (e.g. `C-3829`) or a first name only — never a full name, email, phone, or address.
+- With fewer than 10 real customers in the database, confirm the list just shows however many exist (no fake filler rows).
+- With zero customers in `customer_profiles` (only possible on a brand-new project), confirm "No leaderboard data yet." appears instead of an error.
+
+### 7. Refresh tests
+- After every action above (redemption, badge earning), refresh the whole page (not just re-navigate tabs).
+- **Expected result:** balance, history, badges, and leaderboard all reload with the same real values — nothing resets to a mock/default state.
+
+### 8. Navigation / regression tests
+- Click through every other Customer tab: **Dashboard, Create Pickup, My Pickup Requests, My Wallet & Bank, DIY Crafts & submissions, Community Explorer, Settings & Addresses, Support & Helpdesk**.
+- **Expected result:** every one of them still looks and works exactly as it did after Module 7 — untouched by Module 8.
+- Confirm the sidebar nav item, bottom mobile nav item, and header title for **Rewards Store** all still say the same labels as before (no nav structure changes were made).
+
+### 9. Error cases
+- Temporarily rename/misspell a column in one of the `select()` calls in `rewardsService.ts` (or simulate a network failure via dev tools) and confirm the affected section fails gracefully (empty list + a `console.error` log), not a crashed page.
+- Attempt to call `redeem_reward` for a `reward_id` that doesn't exist (e.g. via the Supabase SQL editor: `select * from redeem_reward(999999);`) → confirm it returns `success = false, error_message = 'Reward not found.'` instead of throwing.
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 8.
+# MODULE 9 — DIY PROJECTS — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module9_diy_schema.sql` and pulling the
+Module 9 code changes. Test as a logged-in **Customer** unless noted
+otherwise.
+
+## 0. Pre-flight
+- [ ] `supabase/module9_diy_schema.sql` ran with no errors in the Supabase SQL Editor.
+- [ ] Supabase Dashboard → **Storage** shows a new `diy-photos` bucket, marked **Public**.
+- [ ] Supabase Dashboard → **Table Editor** → `diy_projects` → Policies shows: `diy_public_view_approved` (unchanged), `diy_owner_insert` (unchanged), `diy_owner_update_pending_or_admin` (**replaces** `diy_owner_update`), `diy_owner_delete_pending_or_admin` (**new**).
+- [ ] `npm install`, then `npx tsc --noEmit` → 0 errors.
+- [ ] `npm run dev` → app starts with no console errors.
+
+## 1. Submit a new DIY project (Tasks 9.1, 9.2)
+| Step | Expected Result |
+|---|---|
+| Go to **DIY Crafts & submissions** tab | Form shows "Submit DIY Eco Craft", no "Cancel edit" link visible |
+| Fill in Project Name, Description, Materials, Repurposing Benefit | Fields accept input normally |
+| Click "Choose photo" under **Before Photo**, pick an image | A thumbnail preview appears above the file picker; the picker shows the file's real name |
+| Click "Choose photo" under **After Photo**, pick a different image | Same — its own preview + filename |
+| Click **Submit DIY Project** | Button reads "Saving..." then a green "DIY Craft Submitted!" success screen appears for ~2 seconds |
+| Wait for the form to reset | Form returns to the empty "Submit DIY Eco Craft" state |
+
+**Supabase checks**
+- [ ] Table Editor → `diy_projects` → a new row exists with your real `customer_id`, the exact `project_name`/`project_description`/`benefits` you typed, `materials_used` as a proper text array (no empty strings if you had trailing commas), `estimated_cost`, `status = 'Pending'`, `reward_earned = 0`, `likes = 0`.
+- [ ] `before_image` and `after_image` are real `https://...supabase.co/storage/v1/object/public/diy-photos/...` URLs — open each in a new tab and confirm the photo loads.
+- [ ] Storage → `diy-photos` bucket → a folder named exactly your user id contains both uploaded files, each prefixed with a timestamp and `before-`/`after-`.
+
+## 2. Submit with no photos
+| Step | Expected Result |
+|---|---|
+| Fill in only the required text fields, leave both photo pickers empty, submit | Submission still succeeds |
+
+- [ ] In Supabase, confirm the new row has `before_image = null` and `after_image = null`.
+- [ ] Back in the "My Submitted Craft Challenges" list, this project shows a placeholder icon instead of a broken image.
+
+## 3. Project history (Task 9.3)
+| Step | Expected Result |
+|---|---|
+| Scroll to "My Submitted Craft Challenges" | Every project you've submitted appears, newest first, each showing its after-photo (or placeholder), name, and submission date |
+| In Supabase, manually insert a `diy_projects` row for a **different** `customer_id` | Refresh the tab → that row does **not** appear in your list (owner-only read) |
+
+## 4. Approval status (Task 9.4)
+| Step | Expected Result |
+|---|---|
+| In Supabase Table Editor, manually change one of your `Pending` rows to `status = 'Approved'` and set `reward_earned` to a number, e.g. `150` | Refresh the DIY tab → that project's badge turns green and reads "Approved", and "+150 XP Earned" appears beneath it |
+| Manually change another row to `status = 'Rejected'` | Refresh → badge turns red and reads "Rejected" |
+| Check both of those rows in the list | Neither shows the Edit (pencil) or Delete (trash) icons anymore |
+
+## 5. Edit a project (Task 9.5)
+| Step | Expected Result |
+|---|---|
+| On a still-`Pending` submission, click the pencil icon | Form switches to "Edit DIY Eco Craft", pre-filled with that project's real name/description/materials/benefit, and shows its existing before/after photos as previews; a "Cancel edit" link appears |
+| Change the description, replace only the **After Photo** with a new file, click **Save Changes** | Success screen reads "DIY Craft Updated!", form resets |
+
+**Supabase checks**
+- [ ] The same row (same `id`) now has the new `project_description`.
+- [ ] `after_image` points to a brand-new file in `diy-photos`; `before_image` is unchanged (you didn't replace it).
+- [ ] Storage still has the *old* after-photo file too (edits never delete the previous upload).
+
+| Step | Expected Result |
+|---|---|
+| Click the pencil icon, then click "Cancel edit" without submitting | Form resets to the empty "Submit DIY Eco Craft" state; nothing changed in Supabase |
+| Try to edit an `Approved` or `Rejected` project | No pencil/trash icons are shown for it — there's no UI path to attempt this |
+| (Optional, to confirm server-side enforcement) In the browser console, manually call `supabase.from('diy_projects').update({ project_name: 'x' }).eq('id', <an approved project's id>)` | Returns success with an **empty** data array — 0 rows updated, confirming RLS blocks it even if the UI is bypassed |
+
+## 6. Delete a project (Task 9.6)
+| Step | Expected Result |
+|---|---|
+| On a still-`Pending` submission, click the trash icon | A confirm dialog appears: `Delete "<project name>"? This can't be undone.` |
+| Click Cancel on that dialog | Nothing happens; the project is still in the list and in Supabase |
+| Click the trash icon again, confirm | The project disappears from "My Submitted Craft Challenges" |
+
+- [ ] In Supabase, confirm the row is fully gone from `diy_projects` (not just hidden).
+- [ ] If that project had any `diy_project_comments`/`diy_project_likes` rows (unlikely for a Pending project, but check), confirm they were cascade-deleted too.
+- [ ] Try deleting an `Approved`/`Rejected` project → no trash icon is shown for it; there's no UI path to attempt this.
+- [ ] While editing a project, delete that same project from a second browser tab → switch back to the first tab and submit the edit → confirm you get "Could not save your changes. This project may have already been reviewed." instead of a silent failure or crash.
+
+## 7. Regression — everything else stays untouched
+- [ ] **Community** tab still shows the mock DIY showcase exactly as before (before/after split images, Like button, comments) — untouched by Module 9.
+- [ ] Liking a project and adding a comment on the Community tab still work exactly as before (still writing to the mock `diyProjects` state, not Supabase).
+- [ ] Dashboard, Create Pickup, Pickups, Wallet, Rewards, Settings, Support tabs all still look and behave exactly as before.
+- [ ] Log out and log back in as a different Customer → confirm you only ever see *your own* submissions in "My Submitted Craft Challenges", never another customer's Pending/Rejected ones (only their Approved ones would show up later, on the Community tab, once Module 10 makes that real).
+
+## 8. Build check
+- [ ] `npx tsc --noEmit` → 0 errors.
+- [ ] `npm run build` → succeeds.
+
+Once all of these pass, Module 9 (DIY Projects) is verified end-to-end.
+# MODULE 10 — COMMUNITY — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module10_community_schema.sql` and the
+`CustomerModule.tsx` changes from `MODULE_10_IMPLEMENTATION_GUIDE.md`.
+Written in the same style as the existing `docs/Manual_Check_Module_wise`
+log — append this section right after the Module 8 entry once it all
+passes (Module 9 has no corresponding manual checklist entry in this
+project yet — write this one on its own for now).
+
+## Pre-flight
+- [ ] `supabase/module9_diy_schema.sql` already ran successfully (Module 10 depends on it).
+- [ ] `supabase/module10_community_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In Table Editor, confirm `diy_projects` now has a `customer_display_name` column, and that `diy_project_saves` / `diy_project_reports` both exist.
+- [ ] `npx tsc --noEmit` → 0 errors.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no console errors.
+- [ ] You have **at least 2** DIY projects with `status = 'Approved'` to test against. If you don't: submit 1–2 projects via **DIY Crafts & submissions** (Module 9) with different logged-in customer accounts if possible, then manually set their `status` to `'Approved'` in Supabase's Table Editor (this is expected — nothing in the app can approve a project yet; that's Module 23).
+
+## Step-by-step Testing
+
+### 1. Community feed loads real data (Task 10.1)
+- Log in as a Customer, go to **Community Explorer**.
+- Confirm every card shown matches a real `diy_projects` row with `status = 'Approved'` — same project name, description, materials, and before/after images you saw in Supabase.
+- Confirm the **By `<name>`** label on each card shows a real display name/code, not blank and not "undefined."
+- **Supabase tables to verify:** `diy_projects.customer_display_name` is populated for every Approved row (if a row from before this module shows blank, that's the one-time backfill's job — re-run section 1 of the SQL file, or just re-save the project).
+- With zero Approved projects (temporarily set them all back to Pending in Supabase, then refresh), confirm the "No approved crafts yet" empty state appears instead of a blank grid or an error.
+
+### 2. Search (Task 10.2)
+- Type part of a real project's name into the search box.
+- **Expected result:** only matching card(s) remain.
+- Clear the box, type part of a material tag (e.g. "Plastic") or part of an author's display name instead.
+- **Expected result:** matching cards still filter correctly (search checks name, description, materials, and author).
+- Search for something that matches nothing → confirm the "No crafts match your search/filter" empty state appears, with a working "Clear search & filter" link.
+
+### 3. Filter by material (Task 10.3)
+- Open the material dropdown → confirm it's populated with real materials pulled from the visible feed (not a hardcoded list).
+- Pick one → confirm only projects using that material remain.
+- Combine with a search term → confirm both apply together (AND, not OR).
+- Switch the sort dropdown between **Newest First / Most Liked / Most Discussed** → confirm the card order actually changes accordingly.
+
+### 4. Like (Task 10.4)
+- Click **Like** on a project you haven't liked yet.
+- **Expected result:** the button turns brand-colored/filled immediately (optimistic update), and the count goes up by 1.
+- Refresh the whole page (not just re-navigate tabs) → confirm the like is still shown as active and the count persisted.
+- **Supabase tables to verify:** a new row exists in `diy_project_likes` with your `user_id` and the project's `id`; `diy_projects.likes` for that row increased by exactly 1 (this is the trigger working, not client-side math).
+- Click **Like** again to unlike → confirm the button un-fills, the count drops by 1, and the row in `diy_project_likes` is gone after refresh.
+- Try to like a project you don't own via a second real Customer account (or by manually inserting a `diy_project_likes` row for a different `user_id`+`project_id` in Supabase) → confirm your own like state is independent of theirs, and the shared `likes` count reflects both.
+
+### 5. Comment (Task 10.5)
+- Click **Comments (N)** on a card with 0 comments.
+- **Expected result:** the thread expands and shows "No comments yet — be the first to say something nice!" (not stuck on "Loading comments..." forever).
+- Type a comment and click **Add** (or press Enter).
+- **Expected result:** the comment appears in the thread immediately with your real name, the input clears, and the **Comments (N)** count on the collapsed button increments.
+- **Supabase tables to verify:** a new row exists in `diy_project_comments` with your real `user_id`, `user_name`, and `comment_text`.
+- Refresh the page, re-expand the same project's comments → confirm your comment is still there (this re-fetches from Supabase, not from memory).
+- Collapse and re-expand a *different* project's comments → confirm each project's thread is independent and only loads once (check the network tab / a `console.log` if needed — re-opening an already-loaded thread should not re-fetch).
+
+### 6. Share (Task 10.6)
+- Click **Share** on a card.
+- On a device/browser with the Web Share API (most mobile browsers): confirm the native share sheet opens with the project's real name.
+- On a desktop browser without it: confirm the button label briefly changes to **"Link copied!"** and that a real, working URL (with a `?community_project=<id>` query param matching that card) is now on your clipboard — paste it somewhere to confirm.
+- Cancel the native share sheet (on a device that has one) → confirm nothing breaks and no error appears.
+
+### 7. Save / bookmark (Task 10.7)
+- Click **Save** on a project.
+- **Expected result:** the button switches to the amber "Saved" filled state immediately.
+- **Supabase tables to verify:** a new row exists in `diy_project_saves` with your `user_id` and the project's `id`.
+- Refresh the page → confirm the project still shows as "Saved."
+- Click it again to un-save → confirm the row disappears from `diy_project_saves` after refresh.
+- Log in as a **different** customer → confirm they do **not** see your save state on that same project (saves are private per-user).
+
+### 8. Report (Task 10.8)
+- Click the flag icon on any card → confirm the Report modal opens.
+- Submit without changing anything (default reason "Inappropriate Content", no details) → confirm a success message appears and the modal auto-closes shortly after.
+- **Supabase tables to verify:** a new row exists in `diy_project_reports` with your `reporter_id`, the correct `project_id`, `reason = 'Inappropriate Content'`, `details = null`, and `status = 'Open'`.
+- Open the modal again on a different project, pick a different reason, and type details → confirm both are saved correctly in the new row.
+- Log in as a **different** customer → confirm they cannot see your submitted reports (only an admin role could — no admin UI reads this table yet, so just confirm via Supabase directly that `reporter_id` matches only your own reports when you query as yourself through the app... in practice: confirm the report modal has no way to view past reports at all, by design).
+
+### 9. Refresh tests
+- After every action above (like, save, comment, report), do a full page refresh (not just switching tabs).
+- **Expected result:** the feed, like states, save states, and comment threads all reload with the same real values — nothing resets to empty or to a mock/default state.
+
+### 10. Navigation / regression tests
+- Click through every other Customer tab: **Dashboard, Create Pickup, My Pickup Requests, My Wallet & Bank, Rewards Store, DIY Crafts & submissions, Settings & Addresses, Support & Helpdesk**.
+- **Expected result:** every one of them still looks and works exactly as it did after Module 9 — untouched by Module 10.
+- Specifically re-check **DIY Crafts & submissions** (your own submissions list, Module 9): confirm creating/editing/deleting your own DIY project still works exactly as before, and that a newly-created project does **not** appear in Community until an admin manually sets its `status` to `'Approved'` in Supabase.
+- Confirm the sidebar nav item, mobile nav item, and header breadcrumb for **Community Explorer** all still say the same labels as before (no nav structure changes were made).
+
+### 11. Error cases
+- Temporarily rename/misspell a column in one of the `select()` calls in `communityService.ts` (or simulate a network failure via dev tools) and confirm the feed fails gracefully (empty list + a `console.error` log), not a crashed page.
+- Attempt to like a project that is **not** Approved — e.g. manually insert a `diy_project_likes` row for a `Pending` project's id via the Supabase SQL editor as your own user — confirm it's rejected by RLS (`diy_likes_insert_own_on_approved`), not silently accepted.
+- Attempt to comment on a `Pending` or `Rejected` project the same way → confirm RLS rejects it too (`diy_comments_insert_own_on_approved`).
+- With your browser's network tab open, unlike a project twice in a row very quickly (double-click) → confirm the UI doesn't show a negative like count or a broken state (the optimistic update + trigger-backed count should stay consistent after both requests settle).
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 10.
+# MODULE 11 — CUSTOMER PROFILE — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module11_customer_profile_schema.sql` and
+the `CustomerModule.tsx` changes from `MODULE_11_IMPLEMENTATION_GUIDE.md`.
+Written in the same style as the Module 10 checklist — append this section
+right after the Module 10 entry once it all passes.
+
+## Pre-flight
+- [ ] `supabase/module3_database_schema.sql` and `supabase/Rls_gap_fix.sql` already ran successfully (Module 11 depends on `profiles` + `saved_addresses` existing with working RLS).
+- [ ] `supabase/module11_customer_profile_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In **Storage**, confirm a new `profile-photos` bucket exists and is marked **Public**.
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error documented in Section 8 of the implementation guide (from Module 6's `handleImageFileChange`) — nothing new from Module 11's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You are logged in as a real Customer account (created via Module 4 sign-up).
+
+## Step-by-step Testing
+
+### 1. Customer profile loads real data (Task 11.1)
+- Go to the **Profile** view (or **Settings & Addresses**).
+- Confirm the name, email, and ID shown match your real `profiles` row in Supabase's Table Editor — not the old hardcoded mock ("Aarav Sharma" etc.).
+- **Supabase tables to verify:** `profiles` — `full_name`, `email`, `display_code` match what's on screen.
+- If any field (`phone`, `address`, `city`, `state`, `pincode`) is `null` in the database, confirm its input renders empty rather than crashing or showing "null" as text.
+
+### 2. Profile editing (Task 11.2)
+- On the Profile tab, change Full Name and Phone Number, then click **Save Profile Changes**.
+- **Expected result:** a green "✓ Profile updated successfully." message appears; the button briefly reads "Saving..." while the request is in flight.
+- **Supabase tables to verify:** `profiles.full_name` / `profiles.phone` for your `id` now match what you typed, and `updated_at` has a fresh timestamp.
+- Refresh the whole page → confirm the new values are still shown (this re-fetches from Supabase, not from memory or `localStorage`).
+- Repeat the same edit from **Settings & Addresses → Personal Account Profile** instead → confirm it saves through the same real path and the Profile tab reflects the change too.
+- Try saving with Full Name cleared to blank → confirm a red inline error appears ("Full name cannot be empty.") and no request is sent (check that `updated_at` did not change).
+
+### 3. Profile picture upload (Task 11.3)
+- Click the small pencil icon on your avatar (Profile tab or Settings card) and choose an image file.
+- **Expected result:** "Uploading photo…" appears briefly, then the new photo shows immediately in that avatar, the sidebar user card, and the header dropdown avatar.
+- **Supabase tables to verify:** a new object exists under `profile-photos/<your-user-id>/avatar-...` in Storage, and `profiles.profile_pic_url` for your row now holds that object's public URL.
+- Refresh the page → confirm the new photo persists everywhere (avatar doesn't revert to the old mock image).
+- Upload a second photo → confirm it replaces the displayed avatar and a second object is added to your `profile-photos/<user-id>/` folder (the old one is not deleted, by design — same behavior as DIY's before/after photo re-uploads).
+
+### 4. Account information management (Task 11.4)
+- Confirm the same real data (name/phone/address/city/state/pincode) is editable from **both** the Profile tab and the Settings tab's account card, and that editing one and refreshing shows the change reflected in the other.
+- Confirm the Email field is shown but disabled/read-only, with the note that email changes aren't supported yet — typing into it should do nothing.
+
+### 5. Verification section (Task 11.5)
+- If you signed up with an unverified email (check `auth.users.email_confirmed_at` is `null` in Supabase), confirm the **"Email Not Verified"** amber badge appears on the Profile tab and the compact **"Unverified"** badge appears on the Settings account card.
+- Click the email verification link from your inbox (Module 4's flow), then refresh the page → confirm both badges switch to green **"Email Verified"** / **"Verified"**.
+- Confirm the account **status** pill (Active / Suspended / Pending Approval) matches `profiles.status` in Supabase.
+
+### 6. Change Password
+- Enter an intentionally wrong "Old Password", any new password, matching confirm → submit.
+- **Expected result:** a red inline error — "Your old password is incorrect." — and your password is unchanged (try logging out and back in with the *old* real password to confirm).
+- Now enter your real current password as "Old Password", a new password (6+ chars), and a matching confirm → submit.
+- **Expected result:** "✓ Password updated successfully." appears and the three fields clear.
+- Log out and log back in using the **new** password → confirm it works, and that the **old** password no longer works.
+- Try submitting with New Password and Confirm not matching → confirm the inline error catches it before any network call.
+
+### 7. Address checks (Address Management)
+- Go to **Settings & Addresses → My Doorstep Locations**.
+- Confirm any existing rows shown match real rows in `saved_addresses` for your `user_id` (not the old mock "Home"/"Office" sample data — if you have none yet, the grid should be empty here, not pre-populated).
+- Add a new address with all fields filled → confirm it appears in the grid immediately.
+- **Supabase tables to verify:** a new row in `saved_addresses` with your `user_id` and the values you typed; if it's your **first ever** address, confirm `is_default = true` was set automatically.
+- Add a second address → confirm it is **not** default by default.
+- Click **Set Default** on the second one → confirm the "Default" badge moves to it, and in Supabase exactly one row for your `user_id` has `is_default = true`.
+- Click **Delete** on a non-default address → confirm it disappears from the grid and the row is gone from `saved_addresses` after refresh.
+- Try adding an address with one field left blank → confirm the existing "Please complete all address fields." alert still fires and no request is sent.
+
+### 8. Dashboard integration checks
+- Go to **Dashboard** → confirm the greeting/name shown still comes from `dashStats.fullName` (Module 5) and matches the name you just edited in Module 11 (both read the same `profiles.full_name` column, so they should always agree after a refresh).
+
+### 9. Community profile display checks
+- Go to **Community Explorer** → confirm your own DIY project cards (if you have any Approved ones) still show your real display name/code exactly as before — Module 11 does not touch `diy_projects.customer_display_name` or `communityService.ts`.
+
+### 10. Rewards / Wallet / DIY Projects regression checks
+- Open **My Wallet & Bank**, **XP Voucher Store**, and **DIY Crafts & submissions** in turn.
+- **Expected result:** every one of them still looks and works exactly as it did after Module 10 — untouched by Module 11. Balances, points, redemption history, and your own DIY submissions list should all be unchanged.
+
+### 11. Database checks (summary)
+- [ ] `profiles` row for your account has up-to-date `full_name`/`phone`/`address`/`city`/`state`/`pincode`/`profile_pic_url` after all edits above.
+- [ ] `saved_addresses` rows for your `user_id` match exactly what's shown in the UI, with exactly one `is_default = true` (if you have at least one address).
+- [ ] `profile-photos` bucket contains your uploaded avatar file(s), scoped under your own `user_id/` folder.
+
+### 12. Error cases
+- Turn off your network connection (dev tools → offline), then try Save Profile Changes → confirm a graceful inline error appears instead of a crash or an infinite "Saving..." state.
+- Log in as a **second** real Customer account and, from Supabase's SQL editor, try `select * from saved_addresses where user_id = '<the-first-customer's-id>'` using the **anon** key context (simulate via the app if possible) → confirm RLS blocks it; the second customer's own Settings screen never shows the first customer's addresses.
+- Attempt to upload a very large or non-image file as a profile picture → confirm the upload either fails gracefully with the inline error message or is rejected by the `accept="image/*"` file picker before it's even selected.
+
+### 13. Refresh tests
+- After every action above (profile edit, avatar upload, password change, address add/set-default/delete), do a full page refresh (not just switching tabs).
+- **Expected result:** all of it reloads with the same real values — nothing resets to the old mock defaults.
+
+### 14. Navigation tests
+- Click through every other Customer tab: **Dashboard, Create Pickup, My Pickup Requests, My Wallet & Bank, Rewards Store, DIY Crafts & submissions, Community Explorer, Support & Helpdesk**.
+- **Expected result:** every one of them still looks and works exactly as it did after Module 10 — untouched by Module 11.
+- Confirm the sidebar nav item, mobile nav item, and header breadcrumb for **Settings & Addresses** still say the same labels as before (no nav structure changes were made).
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 11.
+# MODULE 12 — PARTNER DASHBOARD — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module12_partner_dashboard_schema.sql` and
+the `DeliveryPartnerModule.tsx` changes from `MODULE_12_IMPLEMENTATION_GUIDE.md`.
+Written in the same style as the Module 11 checklist — append this section
+right after the Module 11 entry once it all passes.
+
+You'll need **two** accounts to test this module properly: at least one real
+Customer account (to create pickups) and at least one real Partner account
+(created via Module 4 sign-up, role = partner). A second Partner account is
+needed for the race-condition test in Step 6.
+
+## Pre-flight
+- [ ] `supabase/module3_database_schema.sql` and `supabase/Rls_gap_fix.sql` already ran successfully.
+- [ ] `supabase/module12_partner_dashboard_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In Table Editor, confirm your Partner test account already has a row in `partner_profiles` (auto-created by Module 4's signup trigger).
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error documented in Module 11's guide (from `CustomerModule.tsx`'s `handleImageFileChange`) — nothing new from Module 12's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You have at least one real Customer account and one real Partner account to test with.
+
+## Step-by-step Testing
+
+### 1. Partner Dashboard loads real data (Task 12.1)
+- Log in as the Partner test account.
+- Confirm the name, vehicle type/number, and rating shown match your real `profiles` + `partner_profiles` rows in Supabase's Table Editor — not the old hardcoded mock ("Ravi Kumar" etc.).
+- **Supabase tables to verify:** `profiles` (`full_name`), `partner_profiles` (`vehicle_type`, `vehicle_number`, `rating`, `today_pickups`, `completed_pickups`, `earnings`, `distance_traveled`) all match what's on screen.
+- Confirm a brand-new partner account (0 pickups yet) shows all stat cards at `0` / `₹0.00` rather than crashing or showing mock numbers.
+
+### 2. Availability toggle persists (Task 12.2)
+- On the sidebar (or mobile header), tap the online/offline toggle.
+- **Expected result:** the toggle flips immediately (optimistic update).
+- **Supabase tables to verify:** `partner_profiles.is_online` for your row flips to match.
+- Refresh the whole page → confirm the toggle still shows the state you last set (this re-fetches from Supabase, not from memory or `localStorage`).
+- While **Offline**, confirm the "Nearby Dispatcher" nav item is disabled/greyed out (desktop sidebar and mobile footer both).
+
+### 3. Nearby Dispatcher shows real unassigned pickups
+- From the Customer test account, create 2–3 new pickup requests (Module 6's "Create Pickup").
+- Go online as the Partner account, then open **Nearby Dispatcher**.
+- **Expected result:** the pickups you just created appear, showing the real customer name, address, category, and estimated weight — not mock "Aarav Sharma" style data.
+- **Supabase tables to verify:** the pickups shown all have `status = 'Pending'` and `partner_id = null` in `pickup_requests`.
+- Log in as a **second** partner account (or a private/incognito window) → confirm the same pending pickups appear there too (any online partner can see any unassigned pickup).
+- Tap **Ignore** on one → confirm it disappears from your list, but reappears if you refresh the page (ignore is session-only, not written to the database — confirm the pickup's row in `pickup_requests` is unchanged).
+
+### 4. Accepting a pickup (Task 12.2 / accept)
+- Tap **Accept Trip** on one of the pending pickups.
+- **Expected result:** button shows "Accepting…" briefly, then the pickup moves out of Nearby Dispatcher and into **Assigned Trips**.
+- **Supabase tables to verify:** that pickup's row in `pickup_requests` now has `partner_id` = your partner's `id` and `status = 'Assigned'`. `partner_profiles.today_pickups` for your row incremented by 1.
+- Switch to the Customer account that owns this pickup → its "Live Tracking" screen (Module 6) should now show your partner's real name/phone instead of "Unassigned".
+
+### 5. Assigned Trip status stepper
+- On **Assigned Trips**, tap **Start Trip** on the pickup you just accepted.
+- **Expected result:** button changes to "Mark Arrived"; **Supabase check:** `pickup_requests.status = 'In-Transit'`.
+- Tap **Mark Arrived** → button changes to "Start Weighing & Billing"; **Supabase check:** `status = 'Arrived'`.
+- Refresh the page between each tap → confirm the status persists (it's a real column, not local state).
+
+### 6. Race condition — two partners, one pickup
+- With a second pending pickup still unassigned, open the app in two separate browser sessions logged in as two different partner accounts, both on the Nearby Dispatcher tab.
+- Tap **Accept Trip** on the same pickup from both sessions as close together as you can.
+- **Expected result:** exactly one session succeeds and shows the pickup move to Assigned Trips; the other session's tap either shows the alert ("This pickup was just claimed by another partner…") or the pickup simply disappears from its list on refresh — it must **never** show as assigned to both partners.
+- **Supabase tables to verify:** the pickup's row has exactly one `partner_id`, matching whichever partner actually won.
+
+### 7. Weigh-in + invoice generation (billing modal)
+- Tap **Start Weighing & Billing**, change the verified category and/or actual weight, add an optional remark, then submit.
+- **Expected result:** "Invoice Generated & Earnings Dispatched!" success screen appears, then the modal closes and you land back on the Dashboard tab.
+- **Supabase tables to verify:** the pickup's row now has `status = 'Completed'`, `actual_weight` matching what you entered, `final_amount` = weight × the real `pricing_rates.price_per_kg` for the verified category, `payment_status = 'Paid'`, and a new `invoice_id`.
+- `partner_profiles` for your row: `completed_pickups` incremented by 1, `earnings` increased by the final amount, `distance_traveled` increased by 4.2.
+- Switch to the Customer account → confirm their pickup history / invoice view (Module 6) shows the same final amount and invoice ID.
+
+### 8. Partner statistics update automatically (Task 12.3)
+- Back on the Dashboard tab, confirm all four stat cards (Today's trips, Completed trips, Earnings, Distance) reflect the numbers from Steps 4–7 without any manual refresh trick — they come from the same `load()` the accept/complete actions already trigger.
+- Refresh the whole page → confirm the numbers are identical (proving they're read from the database, not accumulated only in memory).
+
+### 9. Earnings overview (Task 12.4)
+- Open **Earning Records**.
+- **Expected result:** "All-Time Driver Pay" matches `partner_profiles.earnings`; the ledger list shows the pickup you just completed with the correct category, verified weight, date, and amount.
+- Complete a second pickup end-to-end → confirm it appears at the top of the ledger and the totals update.
+
+### 10. Driver Profile tab
+- Open **Driver Profile**.
+- Confirm name, email, display ID, rating, National ID, Driving License, Vehicle Type, and License Plate all match the real `profiles`/`partner_profiles` rows.
+- Confirm there is **no** working "Save Profile Specs" button — the fields are read-only with a note pointing to Module 15, so nothing silently discards edited input the way the old mock form did.
+
+## Regression Checks (Modules 1–11)
+
+- [ ] **Customer Module (Modules 5–11):** log in as Customer → Dashboard, Create Pickup, My Pickup Requests, Live Tracking, Wallet, Rewards, DIY Projects, Community, and Profile/Settings all still load and function exactly as before. In particular, re-verify a pickup accepted by a partner in this session shows correctly on the customer's "Live Tracking" screen.
+- [ ] **Rewards regression (Module 8):** reward points, badges, redemption flow, and leaderboard are unaffected — Module 12 never touches `reward_products`, `reward_redemptions`, or `badges`.
+- [ ] **Community regression (Module 10):** feed, likes, comments, and saves still work — untouched by this module.
+- [ ] **Customer Profile regression (Module 11):** profile editing, avatar upload, saved addresses, and change-password still work — untouched by this module.
+- [ ] **Auth/session (Module 4):** logging out from the Partner Dashboard and back in as a different role (Customer/Industry/Admin) still routes correctly via `ProtectedRoute`.
+
+## Database Checks
+- [ ] `select * from pg_policies where tablename in ('partner_profiles','pickup_requests') order by tablename, policyname;` shows the 3 new Module 12 policies alongside the pre-existing ones from Module 3 / `Rls_gap_fix.sql`.
+- [ ] `select proname from pg_proc where proname in ('increment_partner_today_pickups','apply_partner_completion_stats');` returns both functions.
+- [ ] As a non-admin, non-partner role (e.g. a Customer session), confirm `select * from pickup_requests where status = 'Pending' and partner_id is null and customer_id <> auth.uid();` returns **zero** rows — the new partner-only SELECT policy must not leak unassigned pickups to customers.
+
+## Error Cases
+- [ ] Attempting to accept a pickup that another partner just claimed shows the "already claimed" alert instead of a silent failure or a duplicate assignment.
+- [ ] Submitting the weigh-in form with a `0` or negative weight is rejected by the `estimated_weight > 0` / numeric input constraints (same guard the form already had).
+- [ ] Turning the network off mid-request (e.g. DevTools "Offline") and tapping Accept/Advance/Complete shows the button's loading state end, with no crash and no partial local-state update left dangling.
+
+## Refresh Tests
+- [ ] Toggle Online, accept a pickup, advance its status, then hard-refresh the page at each step → every value (online status, assigned pickup, status, stats) survives the refresh because it's all read from Supabase on mount, not `localStorage`.
+
+## Navigation Tests
+- [ ] All five sidebar tabs (Dashboard, Nearby Dispatcher, Assigned Trips, Earning Records, Driver Profile) switch correctly on both desktop sidebar and mobile bottom nav, and the "Nearby Dispatcher" badge count matches the real `availablePickups` length.
+- [ ] The "Manage Run" button on the Dashboard's "Assigned Active Collection Runs" card correctly jumps to the Assigned Trips tab.
