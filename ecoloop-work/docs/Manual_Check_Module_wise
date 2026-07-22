@@ -536,3 +536,747 @@ needed for the race-condition test in Step 6.
 ## Navigation Tests
 - [ ] All five sidebar tabs (Dashboard, Nearby Dispatcher, Assigned Trips, Earning Records, Driver Profile) switch correctly on both desktop sidebar and mobile bottom nav, and the "Nearby Dispatcher" badge count matches the real `availablePickups` length.
 - [ ] The "Manage Run" button on the Dashboard's "Assigned Active Collection Runs" card correctly jumps to the Assigned Trips tab.
+
+
+# MODULE 13 — PICKUP OPERATIONS — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module13_pickup_operations_schema.sql`
+and the code changes from `MODULE_13_IMPLEMENTATION_GUIDE.md`. Written in
+the same style as the Module 12 checklist — append this section right
+after the Module 12 entry once it all passes.
+
+You'll need one real Customer account and one real Partner account, same
+as Module 12.
+
+## Pre-flight
+- [ ] `supabase/module3_database_schema.sql`, `supabase/Rls_gap_fix.sql`, and `supabase/module12_partner_dashboard_schema.sql` already ran successfully.
+- [ ] `supabase/module13_pickup_operations_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] Confirm the `pickup-photos` Storage bucket (from Module 2) still exists and is marked **Public**.
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error documented in Module 11's guide — nothing new from Module 13's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You have a pickup already accepted by your Partner test account and progressed to `'Arrived'` (repeat Module 12's Steps 4–5 if you need a fresh one).
+
+## Step-by-step Testing
+
+### 1. The stepper stops at Arrived instead of jumping to billing (Task 13.6)
+- On **Assigned Trips**, find your `Arrived` pickup.
+- **Expected result:** the button now reads **"Mark Collected & Upload Proof"** instead of "Start Weighing & Billing."
+- Tap it → the Collect + Upload Proof modal opens (not the billing modal).
+
+### 2. Confirm Collected with no photos
+- In the modal, leave the photo picker empty and tap **Confirm Collected**.
+- **Expected result:** modal closes, no error.
+- **Supabase tables to verify:** the pickup's row in `pickup_requests` now has `status = 'Collected'`. `pickup_images` has no new rows for this pickup.
+- Back on Assigned Trips, confirm the card for this pickup now shows status `COLLECTED` and its button reads **"Start Weighing & Billing."**
+
+### 3. Confirm Collected with proof photos (Task 13.9)
+- Accept and progress a second pickup to `'Arrived'` (Module 12 Steps 4–5).
+- Open the Collect modal → attach 1–3 image files via the photo picker.
+- **Expected result:** each selected photo shows as a small preview thumbnail with a remove (✕) button; the picker slot disappears once 3 photos are attached.
+- Remove one photo → confirm its thumbnail disappears and the picker slot reappears.
+- Tap **Confirm Collected**.
+- **Expected result:** button reads "Saving…" briefly, then the modal closes.
+- **Supabase tables to verify:** the pickup's `pickup_requests.status = 'Collected'`; `pickup_images` has one new row per uploaded photo, each `pickup_id` matching this pickup; in **Storage → pickup-photos**, confirm the files landed under `<your-partner-id>/<pickup-id>/proof-...`.
+- Back on Assigned Trips, confirm the card shows a green **"N proof photos uploaded"** badge matching the count you attached.
+
+### 4. Billing now runs from Collected, not Arrived (Task 13.7)
+- Tap **"Start Weighing & Billing"** on either pickup from Steps 2–3.
+- **Expected result:** same billing modal as Module 12 — verify category, enter actual weight, submit.
+- **Supabase tables to verify:** `pickup_requests.status = 'Completed'`, `actual_weight`, `final_amount`, `payment_status = 'Paid'`, `invoice_id` all set correctly, exactly as in Module 12's checklist.
+- Confirm `partner_profiles.completed_pickups` / `earnings` / `distance_traveled` update the same way Module 12 already verified.
+
+### 5. The `pickup_images` INSERT bug fix (regression + new behavior)
+- As the Customer test account, create a brand-new pickup **with at least one waste photo attached** (Module 6's Create Pickup form).
+- **Supabase tables to verify:** `pickup_images` now has a real row linking that photo to the new pickup — confirm this is actually a **new** row appearing after your upload (previously, per this module's overview, this insert silently failed under RLS even though the file itself reached Storage).
+- On the customer's pickup detail/tracking view, confirm the uploaded photo still displays correctly (proves the SELECT policy from `Rls_gap_fix.sql` and the new INSERT policy work together).
+
+### 6. Storage policy boundary — a partner can't plant proof on someone else's pickup
+- Note the numeric `id` of a pickup assigned to a **different** partner (or simply not assigned to your test partner at all).
+- Using the browser console (or any REST client) with your Partner account's session, attempt to upload a file directly to
+  `pickup-photos/<your-partner-id>/<that-other-pickup-id>/proof-test.jpg`.
+- **Expected result:** the upload is rejected by Storage RLS (403/permission error) — the policy's `pr.partner_id = auth.uid()` check fails because that pickup isn't assigned to you.
+- Repeat for a pickup that **is** assigned to you → the same upload should succeed.
+
+### 7. Photo upload failure doesn't block Collect
+- (Optional, harder to force deliberately) If a photo upload fails for any reason (e.g. throttled network), confirm the pickup still moves to `'Collected'` — check the browser console for a logged upload error rather than a blocked/stuck UI.
+
+## Regression Checks (Modules 1–12)
+
+- [ ] **Partner Dashboard (Module 12):** Dashboard stats, Online toggle, Nearby Dispatcher, Accept/Reject, and the Start Trip / Mark Arrived steps all still work exactly as verified in Module 12's checklist.
+- [ ] **Customer Module (Modules 5–11):** unaffected — re-verify Create Pickup (now with a genuinely working photo attach, see Step 5 above) and Live Tracking still show the correct partner/status.
+- [ ] **Rewards / Community / Customer Profile (Modules 8, 10, 11):** untouched by this module.
+
+## Database Checks
+- [ ] `select policyname, cmd from pg_policies where tablename = 'pickup_images';` shows both the pre-existing SELECT policy and the new `pickup_images_insert_via_pickup` INSERT policy.
+- [ ] `select policyname, cmd from pg_policies where tablename = 'objects' and policyname = 'pickup_photos_partner_proof_insert';` returns one row.
+- [ ] As a Customer session, confirm you still cannot insert a `pickup_images` row for a pickup that isn't yours (the `exists (...)` check in the new policy should reject it).
+
+## Error Cases
+- [ ] Attempting to attach a 4th photo in the Collect modal is silently capped at 3 (picker slot disappears; `slice(0, 3 - proofFiles.length)` in `handleProofFileChange` prevents adding more).
+- [ ] Submitting Collect while offline shows the "Could not mark this pickup as collected" alert rather than a silent failure.
+- [ ] A non-image file selected via the (accept="image/*") picker is filtered by the browser's file dialog; if forced via drag-drop, the upload would still succeed to Storage (no server-side MIME check) — acceptable for this module's scope, same as every other photo upload in the app.
+
+## Refresh Tests
+- [ ] Mark a pickup Collected with photos attached, then hard-refresh the page → the card still shows status `COLLECTED` and the correct proof-photo count (both read from Supabase, not local state).
+
+## Navigation Tests
+- [ ] Closing the Collect modal via the ✕ button (without submitting) leaves the pickup's status unchanged at `'Arrived'` and discards any selected (not-yet-uploaded) photos.
+- [ ] Re-opening the Collect modal for a different pickup starts with an empty photo picker (state isn't leaking between pickups).
+
+# MODULE 14 — BILLING — MANUAL TEST CHECKLIST
+
+Run this after applying the code changes from
+`MODULE_14_IMPLEMENTATION_GUIDE.md`. No new SQL file for this module.
+Written in the same style as the Module 13 checklist — append this section
+right after the Module 13 entry once it all passes.
+
+You'll need one real Customer account and one real Partner account, same
+as Modules 12–13.
+
+## Pre-flight
+- [ ] `supabase/module3_database_schema.sql`, `Rls_gap_fix.sql`, `module12_partner_dashboard_schema.sql`, and `module13_pickup_operations_schema.sql` already ran successfully.
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error documented in Module 11's guide — nothing new from Module 14's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You have (or can quickly create) a pickup progressed all the way to `'Collected'` on your Partner test account, ready for weigh-in.
+
+## Step-by-step Testing
+
+### 1. Completing a pickup now leaves payment Pending (Task 14.1 / 14.3)
+- Progress a pickup to `'Collected'`, then tap **Start Weighing & Billing**, fill in the weight, and submit.
+- **Expected result:** the success screen now reads **"Invoice Generated!"** with a note that payment is Pending until confirmed — not the old "…& Earnings Dispatched!" wording.
+- **Supabase tables to verify:** the pickup's row has `status = 'Completed'`, a real `invoice_id`, a real `final_amount`, and **`payment_status = 'Pending'`** (not `'Paid'`).
+
+### 2. Amount calculation is still correct (Task 14.2, regression)
+- Confirm `final_amount` on the row from Step 1 equals `actual_weight × pricing_rates.price_per_kg` for the verified category — same check as Module 12's checklist.
+
+### 3. Earning Records shows the new payment badge and Payment Pending count
+- Open **Earning Records**.
+- **Expected result:** the pickup from Step 1 shows a **"Payment Pending"** amber badge next to its category, and the new **"Payment Pending"** stat card at the top shows a count of at least 1.
+- Confirm the row shows both a **Download Invoice** button and a **Confirm Payment** button.
+
+### 4. Confirm Payment (Task 14.3)
+- Tap **Confirm Payment** on the pending row.
+- **Expected result:** button briefly reads "Confirming…", then the badge flips to a green **"Paid"** badge and the Confirm Payment button disappears from that row.
+- **Supabase tables to verify:** that pickup's `payment_status` is now `'Paid'`.
+- Refresh the page → confirm the row still shows "Paid" (read from the database, not local state).
+- Confirm the "Payment Pending" stat card count decreased by 1.
+
+### 5. Confirm Payment is idempotent
+- In Supabase's Table Editor, manually set `payment_status` back to `'Pending'` for that same pickup, then in the app tap **Confirm Payment** twice in quick succession (or refresh + tap again after it's already Paid — the button should no longer be visible once Paid, so this mainly tests double-clicking before the UI updates).
+- **Expected result:** no error is thrown either time; the end state is simply `payment_status = 'Paid'`.
+
+### 6. Download Invoice (Task 14.4)
+- Tap **Download Invoice** on any completed pickup (Paid or Pending).
+- **Expected result:** the browser downloads a file named after the real invoice ID (e.g. `INV-2026-4821.html`).
+- Open the downloaded file in a browser.
+- **Expected result:** it renders a clean, standalone invoice showing:
+  - The real invoice ID and date
+  - Customer name and pickup address
+  - Partner name, vehicle type, and vehicle number
+  - Category (+ subcategory if present), verified weight, rate/Kg, and total amount — confirm the rate × weight math matches the total shown
+  - A **Paid** or **Payment Pending** badge matching that pickup's real `payment_status`
+- Use the browser's Print → "Save as PDF" on the opened file → confirm it produces a readable one-page PDF.
+- Download the invoice for a *different* completed pickup → confirm the filename and all contents are specific to that pickup (no stale/cached data from the first download).
+
+### 7. Downloaded invoice reflects payment confirmation
+- Download the invoice for the pickup from Step 4 (now Paid) → confirm it shows the **Paid** badge, not Payment Pending (i.e. the download always reflects current data, not a snapshot taken at completion time).
+
+## Regression Checks (Modules 1–13)
+
+- [ ] **Partner Dashboard / Pickup Operations (Modules 12–13):** Online toggle, Nearby Dispatcher, Accept/Reject, Start/Arrive/Collect + proof upload all still work exactly as verified in their own checklists.
+- [ ] **Partner stats:** `completed_pickups`, `earnings`, and `distance_traveled` still increment at weigh-in time (Complete), not at payment confirmation — confirm this matches the deliberate design note in §7 of the implementation guide, not a regression.
+- [ ] **Customer Module (Modules 5–11):** unaffected — spot-check that a customer's pickup history / invoice view still displays correctly for a pickup whose `payment_status` is now `'Pending'` immediately after completion (rather than always `'Paid'`).
+
+## Database Checks
+- [ ] `select id, status, payment_status, final_amount, invoice_id from pickup_requests where status = 'Completed' order by created_at desc limit 5;` — confirm newly completed pickups show `payment_status = 'Pending'` until you tap Confirm Payment.
+- [ ] Confirm no new RLS policies were added and no existing ones changed — `select policyname from pg_policies where tablename = 'pickup_requests';` should be identical to the list after Module 13.
+
+## Error Cases
+- [ ] Turning the network off and tapping **Confirm Payment** shows the "Could not confirm payment" alert rather than a silent failure or a stuck "Confirming…" state.
+- [ ] Tapping **Download Invoice** on a pickup with no `actualWeight`/`finalAmount` set (shouldn't normally be possible for a row in `completedList`, since only `'Completed'` pickups appear there) is not reachable from the UI — confirm the Earning Records ledger only ever lists pickups with `status = 'Completed'`.
+
+## Refresh Tests
+- [ ] Confirm payment on a pickup, hard-refresh the page, and confirm the Paid badge persists and the Payment Pending count is accurate.
+
+## Navigation Tests
+- [ ] The new "Payment Pending" stat card and the per-row badges/buttons don't shift or break the existing Earning Records layout on mobile widths (check the stat card grid wraps to 2 columns on small screens, same as the Dashboard tab's stat cards).
+
+# MODULE 15 — PARTNER PROFILE — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module15_partner_profile_schema.sql` and
+the code changes from `MODULE_15_IMPLEMENTATION_GUIDE.md`. Written in the
+same style as the Module 14 checklist — append this section right after
+the Module 14 entry once it all passes.
+
+You'll need one real Partner account (created via Module 4 sign-up), same
+as Modules 12–14.
+
+## Pre-flight
+- [ ] `supabase/module3_database_schema.sql`, `Rls_gap_fix.sql`, `module12_partner_dashboard_schema.sql`, and `module13_pickup_operations_schema.sql` already ran successfully.
+- [ ] `supabase/module15_partner_profile_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In **Storage**, confirm a new `partner-documents` bucket exists and is marked **Public**.
+- [ ] In **Table Editor**, confirm `partner_profiles` now has `driving_license_doc_url` and `aadhaar_doc_url` columns (both `null` for existing rows).
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error documented in Module 11's guide (from `CustomerModule.tsx`) — nothing new from Module 15's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You are logged in as a real Partner account and on the **Driver Profile** tab.
+
+## Step-by-step Testing
+
+### 1. Profile tab loads real, editable data (regression + Task 15.1/15.2)
+- Confirm the name, email, ID, rating, and status shown at the top match your real `profiles`/`partner_profiles` rows — not placeholder text.
+- Confirm the Personal Details, Vehicle & Document Credentials, and Uploaded Documents cards all render (not the old three read-only inputs).
+- If `vehicle_type`/`vehicle_number`/`driving_license`/`aadhaar_number` are `null` in the database, confirm their inputs render empty (or the default dropdown option for vehicle type) rather than showing "null" as text or crashing.
+
+### 2. Personal details editing (Task 15.1)
+- Change **Full Name** and **Phone Number**, then click **Save Personal Details**.
+- **Expected result:** a green "✓ Personal details updated successfully." message appears; the button briefly reads "Saving…" while the request is in flight.
+- **Supabase tables to verify:** `profiles.full_name` / `profiles.phone` for your `id` now match what you typed, and `updated_at` has a fresh timestamp.
+- Refresh the whole page → confirm the new values are still shown (re-fetched from Supabase, not memory).
+- Confirm the sidebar driver card and mobile header still show the updated name after the save (they read the same `partner.name` from the same hook).
+- Try saving with Full Name cleared to blank → confirm a red inline error appears ("Full name cannot be empty.") and no request is sent (check `updated_at` did not change).
+- Confirm the **Email** field is shown but disabled/read-only — typing into it should do nothing.
+
+### 3. Profile picture upload (regression of Module 11's shared upload path)
+- Click the small upload icon on your avatar and choose an image file.
+- **Expected result:** "Uploading photo…" appears briefly under your name, then the new photo shows immediately in the Profile tab avatar, the sidebar driver card, and the mobile header (if applicable).
+- **Supabase tables to verify:** a new object exists under `profile-photos/<your-user-id>/avatar-...` in Storage, and `profiles.profile_pic_url` for your row now holds that object's public URL.
+- Refresh the page → confirm the new photo persists everywhere.
+- Log in as a Customer account and confirm this bucket/column is unaffected for that account — Module 15 doesn't touch any Customer data.
+
+### 4. Vehicle & document credentials editing (Task 15.2)
+- Change **Vehicle Type** (dropdown), **License Plate Number**, **Driving License ID**, and **National ID (Aadhaar) Number**, then click **Save Vehicle & Document Details**.
+- **Expected result:** a green "✓ Vehicle & document details updated successfully." message appears; button briefly reads "Saving…".
+- **Supabase tables to verify:** `partner_profiles.vehicle_type` / `vehicle_number` / `driving_license` / `aadhaar_number` for your `user_id` now match what you typed.
+- Refresh the page → confirm the new values persist.
+- Clear one field (e.g. Vehicle Number) to blank and save → confirm it saves as `null` in the database and the input renders empty on reload, without erroring.
+- Sidebar driver card's vehicle-number line (under your name) should reflect the new plate number after the save.
+
+### 5. Document photo upload (Task 15.3)
+- On **Driving License Photo**, confirm it shows "No document uploaded" (if you haven't uploaded one yet), then click **Upload Photo** and choose an image.
+- **Expected result:** the button briefly reads "Uploading…", then the uploaded image renders in the preview box and the button label changes to "Replace Photo".
+- **Supabase tables to verify:** a new object exists under `partner-documents/<your-user-id>/license-...` in Storage, and `partner_profiles.driving_license_doc_url` for your row now holds that object's public URL.
+- Repeat for **Aadhaar (National ID) Photo** → confirm `partner_profiles.aadhaar_doc_url` is set and the object lives under `partner-documents/<your-user-id>/aadhaar-...`.
+- Refresh the page → confirm both document previews persist (not reset to "No document uploaded").
+- Upload a second photo to **replace** an existing one → confirm the preview updates to the new image, `partner_profiles.*_doc_url` now points to the new object, and the previous object is still present in Storage under your folder (by design — not deleted).
+
+### 6. Earnings history (Task 15.4 — regression only, no new work)
+- Open **Earning Records**.
+- **Expected result:** it looks and works exactly as it did after Module 14 — real completed-pickup ledger, Paid/Payment Pending badges, Download Invoice, Confirm Payment. Nothing here changed for Module 15.
+
+## Regression Checks (Modules 1–14)
+
+- [ ] **Partner Dashboard / Pickup Operations (Modules 12–13):** Online toggle, Nearby Dispatcher, Accept/Reject, Start/Arrive/Collect + proof upload all still work exactly as verified in their own checklists.
+- [ ] **Billing (Module 14):** Weigh-in/invoice generation, Confirm Payment, and Download Invoice are all unaffected — spot-check one full pickup lifecycle end to end.
+- [ ] **Customer Module (Modules 5–11):** unaffected — Module 15 only touches Partner-side files (`partnerService.ts`, `usePartnerDashboard.ts`, `DeliveryPartnerModule.tsx`) plus the shared `profile-photos` upload path, which Module 11 already exercises for Customers.
+- [ ] **Industry / Admin (if present):** unaffected — no shared files touched.
+
+## Database Checks
+- [ ] `select user_id, vehicle_type, vehicle_number, driving_license, aadhaar_number, driving_license_doc_url, aadhaar_doc_url from partner_profiles where user_id = '<your-id>';` — confirm every field matches what's shown in the app after the edits above.
+- [ ] `select policyname from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'partner_documents_%';` — confirm all 4 new policies exist (`_public_read`, `_owner_insert`, `_owner_update`, `_owner_delete`).
+- [ ] Confirm no existing RLS policies were changed — `select policyname from pg_policies where tablename = 'partner_profiles';` should be identical to the list after Module 12.
+
+## Customer / Partner / Admin Integration Checks
+- [ ] **Customer integration:** open a Customer account's pickup history for a pickup this partner has handled → confirm the partner name/vehicle info shown there (from `pickup_requests`/`profiles`) reflects your Module 15 edits after a refresh.
+- [ ] **Partner integration:** the sidebar driver card and mobile header both read `partner.name` / `partner.vehicleNumber` from the same `usePartnerDashboard` hook — confirm they update together after any Profile tab save, with no stale values in one place and fresh values in another.
+- [ ] **Admin integration (if your Admin build exposes a partner list/detail view):** confirm any partner list still shows this partner's real name/vehicle data — Module 15 didn't add an admin-side document review UI (see the Implementation Guide's "Deliberate Scope Boundaries"), so this is a read-only spot-check, not a new feature to test.
+
+## Dashboard Regression Checks
+- [ ] Go to **Partner Dashboard** → confirm today's pickups, completed pickups, earnings, and rating stat cards are unchanged and still read from the same `partner_profiles` row Module 15 now lets you partially edit.
+
+## Community / Rewards / Wallet Regression Checks
+- Not applicable to the Delivery Partner role — these tabs belong to the Customer Module and are untouched by Module 15.
+
+## Error Cases
+- Turn off your network connection (dev tools → offline), then try **Save Personal Details** → confirm a graceful inline error appears instead of a crash or a stuck "Saving…" state.
+- Repeat offline for **Save Vehicle & Document Details** → same expected graceful failure.
+- Repeat offline for a document photo upload → confirm an `alert()` fires ("Could not upload your … document. Please try again.") rather than a silent failure or an infinite "Uploading…" state.
+- Attempt to upload a very large or non-image file as a document photo → confirm the upload either fails gracefully with the alert, or is rejected by the `accept="image/*"` file picker before it's even selected.
+- Log in as a **second** real Partner account and confirm their Profile tab shows only their own data — never the first partner's name, vehicle info, or document photos.
+
+## Refresh Tests
+- After every action above (personal details save, photo upload, vehicle details save, both document uploads), do a full page refresh (not just switching tabs).
+- **Expected result:** all of it reloads with the same real values — nothing resets to blank or to stale data.
+
+## Navigation Tests
+- Click through every other Partner tab: **Partner Dashboard, Nearby Dispatcher, Assigned Trips, Earning Records**.
+- **Expected result:** every one of them still looks and works exactly as it did after Module 14 — untouched by Module 15.
+- Confirm the sidebar/mobile nav label for **Driver Profile** is unchanged (no nav structure changes were made).
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 15.
+That completes the roadmap's Phase 4 (Delivery Partner) — Modules 12–15.
+
+# MODULE 16 — INDUSTRY DASHBOARD — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module16_industry_dashboard_schema.sql`
+and the code changes from `MODULE_16_IMPLEMENTATION_GUIDE.md`. Written in
+the same style as the Module 14/15 checklists — append this section right
+after the Module 15 entry once it all passes.
+
+You'll need one real Industry account (created via Module 4 sign-up).
+
+## Pre-flight
+- [ ] `supabase/module3_database_schema.sql` and `Rls_gap_fix.sql` already ran successfully.
+- [ ] `supabase/module16_industry_dashboard_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In **Table Editor**, confirm `industry_inventory` exists (empty for now — it's seeded on first app load, not by the SQL file).
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error documented in Module 11's guide (from `CustomerModule.tsx`) — nothing new from Module 16's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You are logged in as a real Industry account.
+
+## Step-by-step Testing
+
+### 1. First load seeds default inventory (Task 16.2)
+- Log in as a brand-new Industry account for the first time and land on **Overview Metrics**.
+- **Expected result:** a brief loading spinner ("Loading industrial facility workspace…"), then the dashboard renders with real (likely zero) stats.
+- **Supabase tables to verify:** `select * from industry_inventory where industry_id = '<your-id>';` now returns exactly 6 rows (Paper, Plastic, Glass, Metal, E-Waste, Organic), each at `quantity_kg = 0` with the documented default `capacity_kg` and `location`.
+- Refresh the page → confirm exactly 6 rows still exist (seeding did not duplicate them).
+
+### 2. Overview Metrics tab shows real company identity + stats (Task 16.1)
+- Confirm the sidebar's "Corporate Identity Profile" card shows your real company name (from `industry_profiles.company_name`), not a placeholder like "GreenTech Recyclers Pvt Ltd" unless that's genuinely what you signed up with.
+- Confirm the page header reads "Logged in: `<your real company name>`" and, if you have an address on file, "· Facility Location: `<your address>`".
+- Confirm the "Waste Reclaimed (Kg)" and "Registered Cargo Shipments" stat cards show `0` (or your real accumulated numbers if this account has prior data) — not the old hardcoded mock values.
+- **Supabase tables to verify:** these three values match `profiles.full_name`/`address` is not used for company name (that's `industry_profiles.company_name`) and `industry_profiles.waste_received_kg` / `.deliveries_count` for your `user_id`.
+
+### 3. Silo Storage Quantity Levels (Overview tab) matches Warehouse Silos tab (Task 16.2/16.3)
+- On **Overview Metrics**, note the values shown in the "Silo Storage Quantity Levels" panel for each category.
+- Navigate to **Warehouse Silos** → confirm the exact same 6 categories, quantities, capacities, and locations are shown — same underlying data, not a second independent copy.
+- Refresh the page on the Warehouse Silos tab directly → confirm it loads without needing to visit Overview Metrics first.
+
+### 4. Material Yield Reports shows real, computed estimates (Task 16.4)
+- Navigate to **Material Yield Reports**.
+- **Expected result:** "Carbon Mining Mitigation" and "Reclaimed raw grade value" no longer show the old fixed "11.4 Tons Co2" / "₹4,85,210.00 Est." — they now reflect `0` (or your real accumulated waste) times the documented conversion factors, and a small disclosure line explains these are estimates.
+- Confirm the new "Silo Utilization Statistics" card shows a real "Total Stored" and "Total Capacity" that match the sum of all 6 categories shown on the Warehouse Silos tab.
+
+### 5. CSV report download is real (Task 16.4)
+- Click **Download Full CSV**.
+- **Expected result:** a real `.csv` file downloads (e.g. `ecoloop-industry-report-2026-07-21.csv`) — not an `alert()` popup.
+- Open the file → confirm it contains your real company name, generation timestamp, summary metrics (waste reclaimed, shipments, CO2 estimate, value estimate), and one row per silo category with quantity/capacity/utilization %/location/last-updated.
+
+## Regression Checks (Modules 1–15)
+
+- [ ] **Incoming Bulk Cargo tab:** still shows the same mock cargo list and "Accept Silo Load" button behavior as before Module 16 — clicking Accept still moves the mock pickup to "Delivered" and still increments the mock sidebar/dashboard-adjacent counters via `DatabaseContext` (not the real ones you just verified above). This is expected — Module 17 will make this real.
+- [ ] **Processing Status tab:** unaffected — still the same mock batch list with "Advance Machinery Loop".
+- [ ] **Company Credentials tab:** unaffected — still the same mock, editable-in-local-state-only form.
+- [ ] **Customer / Partner Modules (Modules 5–15):** unaffected — no shared files were touched by Module 16 besides the brand-new `industry_inventory` table and `industryService.ts`/`useIndustryDashboard.ts`, neither of which any other role reads.
+
+## Database Checks
+- [ ] `select policyname, cmd from pg_policies where tablename = 'industry_inventory';` — confirm `industry_inventory_owner_select` (SELECT), `industry_inventory_owner_insert` (INSERT), and `industry_inventory_owner_update` (UPDATE) all exist.
+- [ ] `select column_name from information_schema.columns where table_name = 'industry_inventory';` — confirm `industry_id, category, quantity_kg, capacity_kg, location, updated_at` all exist.
+- [ ] Confirm no existing policies on `industry_profiles` or `profiles` were changed.
+
+## Customer / Partner / Admin Integration Checks
+- [ ] **Customer integration:** not applicable — Module 16 doesn't surface industry data anywhere in the Customer Module.
+- [ ] **Partner integration:** not applicable — same reasoning.
+- [ ] **Admin integration:** if your Admin build has any facility/industry list, it should still show this industry's real company name (from the same `profiles`/`industry_profiles` rows) — a read-only spot-check, since Module 16 didn't add an admin-facing view.
+
+## Dashboard Regression Checks
+- [ ] Log in as a **second** real Industry account and confirm its Overview Metrics/Warehouse Silos/Reports show only its own real data — never the first account's company name, stock levels, or stats.
+
+## Community / Rewards / Wallet Regression Checks
+- Not applicable to the Industry role — these tabs belong to the Customer Module and are untouched by Module 16.
+
+## Error Cases
+- Turn off your network connection (dev tools → offline), then load the Industry Module fresh.
+- **Expected result:** the loading spinner persists gracefully (no crash); once you're back online and refresh, the real dashboard loads normally.
+- If you manually delete a category row from `industry_inventory` in the Table Editor for your account, then reload the Warehouse Silos tab — confirm the missing category is silently re-seeded at 0 Kg (the idempotent upsert fills the gap) rather than crashing or showing a blank row.
+
+## Refresh Tests
+- After landing on Overview Metrics, Warehouse Silos, and Material Yield Reports, do a full page refresh on each.
+- **Expected result:** all three reload with the same real values — nothing resets to the old hardcoded mock numbers.
+
+## Navigation Tests
+- Click through all 6 sidebar tabs: **Overview Metrics, Incoming Bulk Cargo, Warehouse Silos, Processing Status, Material Yield Reports, Company Credentials**.
+- **Expected result:** Overview/Silos/Reports show real data consistently across navigation; Incoming Bulk Cargo/Processing/Company Credentials behave exactly as they did before Module 16.
+- Confirm the mobile bottom nav (Dash / Cargo / Silos / Process) still works identically on a narrow viewport.
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 16.
+# MODULE 17 — WASTE MANAGEMENT — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module17_waste_management_schema.sql`
+and the code changes from `MODULE_17_IMPLEMENTATION_GUIDE.md`. Append this
+section right after the Module 16 entry once it all passes.
+
+You'll need: one real Customer account, one real Partner account, and one
+real Industry account (ideally two Industry accounts for the claim-race
+test). You'll also need one pickup carried all the way to `Completed` via
+Modules 6 → 13 → 14 (customer requests it, partner accepts/collects/
+completes it).
+
+## Pre-flight
+- [ ] `supabase/module16_industry_dashboard_schema.sql` already ran successfully.
+- [ ] `supabase/module17_waste_management_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In **Table Editor**, confirm `pickup_requests` now has an `industry_processing_status` column.
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error (from `CustomerModule.tsx`) — nothing new from Module 17's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You have at least one real pickup in status `Completed` with `assigned_industry_id` still `null`.
+
+## Step-by-step Testing
+
+### 1. Incoming Bulk Cargo shows real unclaimed pickups (Task 17.1)
+- Log in as your Industry account, open **Incoming Bulk Cargo**.
+- **Expected result:** your real `Completed`, unclaimed pickup appears with the real carrier (Partner) name/phone, category, and weight — not the old mock "Daniel Cruz" placeholder.
+- **Supabase tables to verify:** `select id, status, assigned_industry_id from pickup_requests where id = <that pickup's id>;` shows `status = 'Completed'` and `assigned_industry_id is null`.
+
+### 2. Accept delivery (Task 17.2 / 17.5)
+- Click **Accept Silo Load** on that pickup.
+- **Expected result:** button briefly reads "Accepting…", then the card disappears from Incoming Bulk Cargo.
+- **Supabase tables to verify:**
+  - `pickup_requests.assigned_industry_id` for that pickup's `id` now equals your Industry account's `user_id`, and `industry_processing_status = 'Received'`.
+  - `industry_profiles.waste_received_kg` / `.deliveries_count` for your account increased by the pickup's weight / by 1.
+  - `industry_inventory.quantity_kg` for the matching category increased by the same weight.
+- Navigate to **Warehouse Silos** and **Overview Metrics** → confirm both reflect the new, higher numbers immediately (no separate refresh needed beyond normal navigation).
+
+### 3. Claim race protection (Task 17.2)
+- Get a second real `Completed`, unclaimed pickup. Open the app in two browser sessions logged in as two different Industry accounts, both showing that same pickup in Incoming Bulk Cargo.
+- Click **Accept Silo Load** in both sessions at nearly the same time.
+- **Expected result:** exactly one succeeds; the other shows an alert ("This cargo may have already been claimed by another facility. Refreshing…") and the pickup disappears from its list on the next load too.
+- **Supabase tables to verify:** `pickup_requests.assigned_industry_id` for that pickup is set to exactly one of the two accounts, never both, and `industry_inventory`/`industry_profiles` were only incremented once (by the winning account).
+
+### 4. Reject delivery (Task 17.3)
+- With at least one more available pickup showing, click **Reject Batch**.
+- **Expected result:** the card disappears from your Incoming Bulk Cargo list immediately, with no confirmation dialog.
+- **Supabase tables to verify:** `pickup_requests` for that pickup is completely unchanged — still `status = 'Completed'`, `assigned_industry_id` still `null`.
+- Refresh the whole page → confirm the rejected pickup **reappears** in Incoming Bulk Cargo (rejection was session-only, not persisted — this is expected, matching the Partner "Ignore" button's documented behavior).
+- Log in as a different Industry account (or a fresh session) → confirm that same rejected pickup is visible there too.
+
+### 5. Processing Status (Task 17.4)
+- Navigate to **Processing Status**.
+- **Expected result:** the pickup you accepted in Step 2 appears with stage badge "Received Stage" and a real pickup ID/category/weight (not a fake "BATCH-8823" code).
+- Click **Advance Machinery Loop**.
+- **Expected result:** button briefly reads "Advancing…", then the badge updates to "Sorting Stage".
+- **Supabase tables to verify:** `pickup_requests.industry_processing_status` for that pickup is now `'Sorting'`.
+- Click **Advance Machinery Loop** twice more → confirm it moves to `'Processing'`, then `'Completed'`, and the Advance button disappears once it reaches `'Completed'`.
+- Refresh the page → confirm the stage persists at whatever you left it at.
+
+### 6. History (Task 17.6)
+- Navigate to **Material Yield Reports** → scroll to **Delivery History**.
+- **Expected result:** every pickup you've ever accepted (any stage) is listed, most recent first, with its real ID/category/weight/current stage.
+- Accept one more delivery → confirm it appears at the top of this list after a refresh.
+
+## Regression Checks (Modules 1–16)
+
+- [ ] **Overview Metrics / Warehouse Silos / Material Yield Reports (Module 16):** stat cards, silo bars, and CO2/value estimates all still reflect real data — and now update correctly after an Accept action from this module.
+- [ ] **Partner Pickup Operations (Modules 12–14):** the pickup you used for testing still shows correctly in the Partner's Earning Records with its normal invoice/payment flow — accepting it on the Industry side doesn't change anything on the Partner or Customer side.
+- [ ] **Customer Module:** the customer who requested this pickup still sees it in their pickup history exactly as before.
+- [ ] **Company Credentials tab:** unaffected by this module — still whatever state Module 18 leaves it in (or the pre-Module-18 mock, if testing this checklist before Module 18 lands).
+
+## Database Checks
+- [ ] `select policyname, cmd from pg_policies where tablename = 'pickup_requests' and policyname like 'pickups_industry_%';` — confirm all 4 policies exist.
+- [ ] `select proname from pg_proc where proname = 'accept_industry_delivery';` — confirm the function exists.
+- [ ] Confirm no existing policies on `pickup_requests` from Modules 3/12/13 were changed — `select policyname from pg_policies where tablename = 'pickup_requests';` should include all of the old ones plus these 4 new ones.
+
+## Customer / Partner / Admin Integration Checks
+- [ ] **Customer integration:** the customer's own view of this pickup (status, invoice) is unaffected by the industry accepting it.
+- [ ] **Partner integration:** the partner's Earning Records entry for this pickup is unaffected.
+- [ ] **Admin integration (if applicable):** any admin pickup list should now show `assigned_industry_id` populated for this pickup, if your Admin build surfaces that column.
+
+## Dashboard Regression Checks
+- [ ] Overview Metrics stat cards update correctly after any Accept action performed anywhere else in the app during this session (i.e. after switching tabs and back).
+
+## Error Cases
+- Turn off your network connection, then try **Accept Silo Load** → confirm a graceful alert appears rather than a silent failure or crash.
+- Repeat offline for **Advance Machinery Loop** → same expected graceful failure, with the stage badge unchanged.
+- Try to accept a pickup that a different session just claimed a moment ago (simulating a stale list) → confirm the graceful "already claimed" alert, not a raw Postgres error dumped to the user.
+
+## Refresh Tests
+- After accepting a delivery and advancing it through all 4 processing stages, refresh the page at each step.
+- **Expected result:** the stage shown always matches what's in the database — nothing resets to "Received" or disappears.
+
+## Navigation Tests
+- Click through all 6 sidebar tabs after performing an Accept + a few Advance actions.
+- **Expected result:** Overview Metrics, Warehouse Silos, Incoming Bulk Cargo, Processing Status, and Material Yield Reports are all mutually consistent (same numbers, same pickups) no matter which order you visit them in.
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 17.
+# MODULE 18 — INDUSTRY PROFILE — MANUAL TEST CHECKLIST
+
+Run this after applying `supabase/module18_industry_profile_schema.sql`
+and the code changes from `MODULE_18_IMPLEMENTATION_GUIDE.md`. Append this
+section right after the Module 17 entry once it all passes. This is also
+the last module for the Industry role — once this passes, Modules 16–18
+are all real, end to end.
+
+You'll need one real Industry account.
+
+## Pre-flight
+- [ ] `supabase/module16_industry_dashboard_schema.sql` and `supabase/module17_waste_management_schema.sql` already ran successfully.
+- [ ] `supabase/module18_industry_profile_schema.sql` ran with no errors in Supabase SQL Editor.
+- [ ] In **Storage**, confirm a new `industry-documents` bucket exists and is marked **Public**.
+- [ ] In **Table Editor**, confirm `industry_profiles` now has `gst_doc_url`, `registration_doc_url`, and `email_notifications_enabled` columns.
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error (from `CustomerModule.tsx`) — nothing new from Module 18's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You are logged in as a real Industry account and on **Company Credentials**.
+
+## Step-by-step Testing
+
+### 1. Company Credentials loads real, editable data
+- Confirm the identity header shows your real company name, email, ID, and real GST number (not a hardcoded placeholder).
+- Confirm all 5 cards render: identity, Company Information, Contact, Uploaded Documents, Settings.
+- If `industry_type`/`gst_number`/`registration_number` are `null` in the database, confirm their inputs render empty (or the default dropdown option) rather than showing "null" as text.
+
+### 2. Company information editing (Task 18.1)
+- Change **Company Name**, **Industry Type** (dropdown), **GST ID Number**, and **Corporate License / Registration ID**, then click **Save Company Information**.
+- **Expected result:** a green "✓ Company information updated successfully." message; button briefly reads "Saving…".
+- **Supabase tables to verify:** `industry_profiles.company_name` / `industry_type` / `gst_number` / `registration_number` for your `user_id` now match what you typed.
+- Refresh the page → confirm the new values persist and the sidebar identity card shows the new company name.
+- Try saving with Company Name cleared to blank → confirm a red inline error appears ("Company name cannot be empty.") and the database is unchanged.
+- **This is the first time this table has ever been writable** — before this module, `select policyname from pg_policies where tablename = 'industry_profiles';` would have shown only a SELECT policy. Confirm it now also shows `industry_profiles_owner_update`.
+
+### 3. Contact details editing (Task 18.3)
+- Change **Facility Manager** and **Corporate Hotline**, then click **Save Contact Details**.
+- **Expected result:** a green "✓ Contact details updated successfully." message.
+- **Supabase tables to verify:** `industry_profiles.contact_person` AND `profiles.phone` for your account both reflect the new values (two tables, one save action).
+- Refresh the page → confirm both persist.
+- Turn off your network, then try saving again → confirm a graceful red error message appears instead of a silent failure or crash.
+
+### 4. Document photo upload (Task 18.2)
+- On **GST Certificate**, confirm it shows "No document uploaded" (if none yet), click **Upload Photo**, choose an image.
+- **Expected result:** button briefly reads "Uploading…", then the image renders in the preview and the label changes to "Replace Photo".
+- **Supabase tables to verify:** a new object exists under `industry-documents/<your-user-id>/gst-...` in Storage, and `industry_profiles.gst_doc_url` now holds its public URL.
+- Repeat for **Registration Certificate** → confirm `industry_profiles.registration_doc_url` is set similarly, object under `industry-documents/<your-user-id>/registration-...`.
+- Refresh the page → confirm both previews persist.
+- Upload a replacement photo for one document → confirm the preview updates, the column now points to the new object, and the old object remains in Storage (unlinked, by design).
+
+### 5. Settings (Task 18.4)
+- Note the current position of the **Email Notifications** toggle.
+- Click it.
+- **Expected result:** the switch animates to the opposite position immediately.
+- **Supabase tables to verify:** `industry_profiles.email_notifications_enabled` for your account now matches the new toggle state.
+- Refresh the page → confirm the toggle stays in the new position (not reset to default `true`).
+- Click it again to restore the original state, and confirm that persists too.
+
+## Regression Checks (Modules 1–17)
+
+- [ ] **Overview Metrics / Warehouse Silos / Material Yield Reports (Module 16):** unaffected by any Module 18 edits — company name change is reflected in the header, everything else is untouched.
+- [ ] **Incoming Bulk Cargo / Processing Status (Module 17):** unaffected — accept/reject/advance still work exactly as verified in the Module 17 checklist.
+- [ ] **Partner / Customer Modules:** unaffected — no shared files were touched besides the brand-new `industry-documents` bucket and the industry-only service/hook/component files.
+
+## Database Checks
+- [ ] `select policyname, cmd from pg_policies where tablename = 'industry_profiles';` — confirm both `industry_profiles_owner_select` (from `Rls_gap_fix.sql`) and the new `industry_profiles_owner_update` exist.
+- [ ] `select policyname from pg_policies where tablename = 'objects' and policyname like 'industry_documents_%';` — confirm all 4 new storage policies exist.
+- [ ] `select column_name from information_schema.columns where table_name = 'industry_profiles';` — confirm `gst_doc_url`, `registration_doc_url`, `email_notifications_enabled` all exist.
+
+## Customer / Partner / Admin Integration Checks
+- [ ] **Customer / Partner integration:** not applicable — Module 18 doesn't surface industry profile data anywhere in those modules.
+- [ ] **Admin integration (if applicable):** if your Admin build has a facility list/detail view, confirm it still shows this industry's real (now editable) company name/GST/registration data — read-only spot-check, no admin document review UI was added.
+
+## Dashboard Regression Checks
+- [ ] Log in as a **second** real Industry account and confirm its Company Credentials tab shows only its own data — never the first account's company name, contact details, or documents.
+
+## Error Cases
+- Turn off your network connection, then try each of: Save Company Information, Save Contact Details, a document upload, and the Settings toggle.
+- **Expected result:** each fails gracefully (inline red message or `alert()`), with no crash and no stuck "Saving…"/"Uploading…" state that never resolves.
+- Attempt to upload a very large or non-image file as a document → confirm it's rejected by the `accept="image/*"` picker or fails gracefully with the alert.
+
+## Refresh Tests
+- After every action above, do a full page refresh (not just switching tabs).
+- **Expected result:** all of it reloads with the same real values — nothing resets to blank, to `null`, or to the old mock placeholders.
+
+## Navigation Tests
+- Click through all 6 sidebar tabs: **Overview Metrics, Incoming Bulk Cargo, Warehouse Silos, Processing Status, Material Yield Reports, Company Credentials**.
+- **Expected result:** every tab now shows real, mutually consistent data — this is the first time the entire Industry role has zero remaining mock tabs.
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 18.
+That completes the roadmap's Phase 5 (Industry) — Modules 16–18.
+# MODULE 19 — ADMIN DASHBOARD — MANUAL TEST CHECKLIST
+
+Run this after applying the code changes from
+`MODULE_19_IMPLEMENTATION_GUIDE.md` (no SQL migration is needed for this
+module). Append this section right after the Module 18 entry once it all
+passes.
+
+You'll need: one real Admin account (`profiles.role = 'admin'`, created
+directly in the database — there's no public admin sign-up form), and
+ideally a handful of real Customer/Partner/Industry accounts with a few
+real pickups and DIY submissions already in the system from testing
+Modules 1–18, so the dashboard has real data to show.
+
+## Pre-flight
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error (from `CustomerModule.tsx`) — nothing new from Module 19's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You are logged in as a real Admin account and land on **Dashboard**.
+
+## Step-by-step Testing
+
+### 1. Dashboard loads with a brief spinner, then real stats (Task 19.1)
+- **Expected result:** a brief "Loading platform overview…" spinner, then all 4 stat cards render.
+- Confirm **Total Customers** matches `select count(*) from profiles where role = 'customer';` run in the Supabase SQL Editor.
+- Confirm **Pending Drivers** matches `select count(*) from profiles where role = 'partner' and status = 'Pending Approval';`.
+- Confirm **Unassigned Pickups** matches `select count(*) from pickup_requests where status = 'Pending';`.
+- Confirm **Unverified DIY Crafts** matches `select count(*) from diy_projects where status = 'Pending';`.
+- Click each stat card's link button (Manage Database / Review Profiles / Manual Allocation / Perform Auditing) → confirm each still navigates to its respective (still-mock) tab exactly as before.
+
+### 2. Charts show real data (Tasks 19.2/19.3)
+- Confirm the **Pickup Requests — Last 7 Days** bar chart shows exactly 7 bars (today plus the 6 prior days), with heights matching the real count of `pickup_requests` created on each of those dates.
+- Create one new real pickup request (as a Customer account) → refresh the Admin Dashboard → confirm today's bar increased by exactly 1.
+- Confirm the **Waste Category Breakdown** pie chart's slices (and legend counts) match `select category, count(*) from pickup_requests group by category order by count(*) desc;`.
+- If there are zero pickups in the whole system, confirm the pie chart area shows "No pickups yet — this chart fills in once the first pickup is recorded." instead of a broken/empty chart.
+
+### 3. Platform Revenue Log is real (Task 19.2)
+- Confirm the revenue figure matches `select sum(final_amount) from pickup_requests where payment_status = 'Paid';` (formatted as ₹ with 2 decimal places).
+- Confirm the Partners/Industries counts beneath it match `select count(*) from profiles where role = 'partner';` / `role = 'industry'`.
+- Complete one more real pickup's payment (via the Partner's Confirm Payment flow, Module 14) → refresh the Admin Dashboard → confirm the revenue figure increased by exactly that pickup's `final_amount`.
+
+### 4. Recent Platform Activity feed (Task 19.4)
+- Confirm the feed shows a mix of recent signups, pickup requests, and DIY submissions, each with a distinct icon (person-plus for signups, package for pickups, hammer for DIY) and a real, recent timestamp.
+- Sign up one new real account (any role) → refresh the Admin Dashboard → confirm a new "`<name>` joined as a new `<role>`" entry appears at (or near) the top of the feed.
+- Submit one new real pickup request → refresh → confirm a new "New `<category>` pickup request submitted (#`<id>`, Pending)" entry appears.
+- Submit one new real DIY project → refresh → confirm a new "New DIY project submitted: `<name>`" entry appears.
+- Confirm the feed never shows more than 15 entries and is sorted most-recent-first.
+- If the whole system has zero signups/pickups/DIY projects (a truly empty database), confirm it shows "No platform activity recorded yet." rather than erroring.
+
+## Regression Checks (Modules 1–18)
+
+- [ ] **Customer Database / Partner Roster / Industry Certification / Global Dispatch Log / Silo Pricing / DIY Auditing / Broadcaster System / Live Partner Monitoring tabs:** all unaffected — still reading/writing the exact same `DatabaseContext` mock as before Module 19. Spot-check that switching to each of these tabs and back to Dashboard doesn't change or reset any of their mock state.
+- [ ] **Customer / Partner / Industry Modules (Modules 1–18):** completely unaffected — Module 19 only added new files plus edits scoped to `AdminModule.tsx`'s Dashboard tab.
+
+## Database Checks
+- [ ] Confirm no RLS policies were added, removed, or modified anywhere — `select policyname from pg_policies order by tablename, policyname;` should be identical to its state after Module 18.
+- [ ] As a non-admin account (e.g. a Customer), confirm you still cannot see other users' `profiles` rows or other users' `pickup_requests` — RLS for non-admins is completely unchanged by this module.
+
+## Customer / Partner / Industry Integration Checks
+- [ ] **Customer integration:** a customer signing up or submitting a pickup is what makes the Admin Dashboard's stats/charts/activity feed change — confirm this cause-and-effect holds for all 3 (signup, pickup, DIY submission).
+- [ ] **Partner integration:** a partner confirming payment on a pickup (Module 14) is what makes the Platform Revenue Log figure change — confirm this holds.
+- [ ] **Industry integration:** an industry account signing up increases Total Industries; nothing else on this dashboard reacts to industry-side actions (accepting deliveries, etc.) since Module 19 doesn't surface industry-specific stats.
+
+## Dashboard Regression Checks
+- [ ] Log in as a **second** real Admin account (if you have one) and confirm it sees the exact same platform-wide numbers — this dashboard is global, not scoped per-admin, unlike every other role's dashboard in this app.
+
+## Error Cases
+- Turn off your network connection, then load the Admin Dashboard fresh.
+- **Expected result:** the loading spinner persists gracefully (no crash, no broken chart render); once back online and refreshed, the real dashboard loads normally.
+- Log in as a non-admin account and attempt to call the same Supabase queries `adminService.ts` uses (e.g. via browser dev tools) — confirm RLS silently returns only that account's own visible rows, never an error that leaks the existence of other users' data.
+
+## Refresh Tests
+- After landing on Dashboard, do a full page refresh.
+- **Expected result:** all stats, both charts, and the activity feed reload with the same real values — nothing resets to the old hardcoded mock numbers or the fixed "₹18,45,290.00" placeholder.
+
+## Navigation Tests
+- Click through all 8 sidebar tabs (Dashboard, Customer Database, Partner Roster, Industry Certification, Global Dispatch Log, Silo Pricing, DIY Auditing, Broadcaster System) plus the mobile-only Live Partner Monitoring tab.
+- **Expected result:** Dashboard shows real data consistently; every other tab behaves exactly as it did before Module 19 (still mock, unaffected).
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 19.
+# MODULE 20 — USER MANAGEMENT — MANUAL TEST CHECKLIST
+
+Run this after applying the code changes from
+`MODULE_20_IMPLEMENTATION_GUIDE.md` (no SQL migration is needed for this
+module). Append this section right after the Module 19 entry once it all
+passes.
+
+You'll need: one real Admin account, plus at least one real Customer, one
+real Partner (ideally one `Pending Approval` and one `Active`), and one
+real Industry account.
+
+## Pre-flight
+- [ ] `npx tsc --noEmit` → only the one pre-existing, unrelated error (from `CustomerModule.tsx`) — nothing new from Module 20's own files.
+- [ ] `npm run build` → succeeds.
+- [ ] `npm run dev` → app loads with no new console errors.
+- [ ] You are logged in as a real Admin account.
+
+## Step-by-step Testing
+
+### 1. Customer Database shows real data (Task 20.1)
+- Navigate to **Customer Database**.
+- **Expected result:** a brief loading spinner, then every real customer appears with their real name, email, wallet balance, and reward points — not the old mock "Priya Sharma"/"Rohan Mehta" placeholders.
+- **Supabase tables to verify:** for one customer, confirm `walletBalance`/`rewardPoints` shown in the card match `select wallet_balance, reward_points from customer_profiles where user_id = '<that customer's id>';`.
+
+### 2. Partner Verification shows real data (Task 20.2)
+- Navigate to **Partner Verification**.
+- **Expected result:** every real partner appears with their real name, vehicle type/number, driving license, and Aadhaar number.
+- **Supabase tables to verify:** matches `select vehicle_type, vehicle_number, driving_license, aadhaar_number from partner_profiles where user_id = '<that partner's id>';`.
+- Confirm the sidebar's Partner Verification badge count matches the number of partners actually shown with status "Pending Approval".
+
+### 3. Industry Certification shows real data (Task 20.3)
+- Navigate to **Industry Certification**.
+- **Expected result:** every real industry appears with real company name, industry type, GST number, and address.
+- **Supabase tables to verify:** matches `select company_name, industry_type, gst_number from industry_profiles where user_id = '<that industry's id>';` plus `profiles.address`.
+- Confirm the sidebar's Industry Certification badge count matches the number shown with status "Pending Approval".
+
+### 4. Search (Task 20.4)
+- On any of the 3 tabs, type part of a real user's name into the search box.
+- **Expected result:** the grid narrows to only matching rows, live as you type (no submit button needed).
+- Clear the search box and type part of that same user's email instead → confirm it matches too.
+- Type something that matches nobody → confirm the grid becomes empty (not an error).
+- Switch tabs (e.g. Customer Database → Partner Verification) with a search term still typed → confirm the same term still applies (shared state across tabs is expected).
+
+### 5. Filter (Task 20.5)
+- On **Partner Verification**, select "Pending Approval" from the status dropdown.
+- **Expected result:** only partners with that real status show.
+- Select "Approved" (maps to real `Active`) → confirm only real `Active` partners show.
+- Select "Suspended" → confirm only real `Suspended` partners show (may be empty if none exist yet).
+- Select "All Statuses" → confirm the full list returns.
+- Repeat for **Industry Certification** and confirm the same 3-state behavior (with "Active" labeled "Approved" in that tab too).
+- On **Customer Database**, confirm the filter only offers "All/Active/Suspended" (no "Pending Approval" — customers never have that status in this app).
+
+### 6. Approve (Task 20.6)
+- Find a real partner with status "Pending Approval". Click **Approve and Dispatch**.
+- **Expected result:** button briefly reads "Saving…", then the card's badge updates to "Approved" and the Approve/Reject buttons are replaced with a "Suspend Driver" button.
+- **Supabase tables to verify:** `profiles.status` for that partner's `id` is now `'Active'`.
+- Refresh the whole page → confirm the change persists and the sidebar badge count decreased by 1.
+- Repeat for a Pending Approval industry using **Authorize Industry Certificate**.
+
+### 7. Reject (Task 20.7)
+- Find another real partner with status "Pending Approval". Click **Reject Profile**.
+- **Expected result:** the card's badge updates to "Suspended" and shows a "Re-Activate Driver" button.
+- **Supabase tables to verify:** `profiles.status` for that partner is now `'Suspended'`.
+- Repeat for a Pending Approval industry using **Reject Corporate Account**.
+
+### 8. Suspend / Re-Activate (Task 20.8)
+- Find a real `Active` customer. Click **Suspend Account**.
+- **Expected result:** badge/button update to reflect `Suspended`; button now reads "Re-Activate".
+- **Supabase tables to verify:** `profiles.status` for that customer is now `'Suspended'`.
+- Click **Re-Activate** → confirm it goes back to `Active` in the database.
+- Repeat the Suspend → Re-Activate cycle once each for a real Partner and a real Industry account, using their respective Suspend/Re-Activate buttons.
+- While that suspended account is logged in on a separate session, confirm the app's existing role-guard behavior for a suspended account (if your build has one) still applies — this checklist doesn't change that behavior, only how status gets set.
+
+## Regression Checks (Modules 1–19)
+
+- [ ] **Dashboard tab (Module 19):** stat cards and charts still show real, correct numbers, and now reflect any approve/reject/suspend actions performed in this checklist (e.g. Pending Drivers count decreases after an approval).
+- [ ] **Live Partner Monitoring tab:** unaffected — still reads the exact same `DatabaseContext` mock partners array as before Module 20 (a real partner you just approved here will NOT automatically appear correctly there, since that tab is intentionally still mock — this is expected, not a bug).
+- [ ] **Global Dispatch Log tab's Manual Allocation dropdown:** unaffected — still reads the mock partners array.
+- [ ] **Customer / Partner / Industry Modules (Modules 1–18):** completely unaffected by anything in this checklist.
+
+## Database Checks
+- [ ] Confirm no RLS policies were added, removed, or modified — `select policyname from pg_policies order by tablename, policyname;` should be identical to its state after Module 19.
+- [ ] As a non-admin account, confirm you still cannot update another user's `profiles.status` — RLS for non-admins is completely unchanged.
+
+## Customer / Partner / Industry Integration Checks
+- [ ] **Customer integration:** a customer whose account you just suspended should be blocked from continuing to use customer-side features per whatever suspension-enforcement already exists in this app (if any) — this module only sets the flag, it doesn't introduce new enforcement logic.
+- [ ] **Partner integration:** an approved partner should now be able to log in and use the Partner Module normally (if they couldn't before due to being Pending Approval).
+- [ ] **Industry integration:** same as above for an approved industry account.
+
+## Dashboard Regression Checks
+- [ ] After any approve/reject/suspend action, navigate back to **Dashboard** and confirm the relevant stat card (Pending Drivers, etc.) updated without needing a full page refresh.
+
+## Error Cases
+- Turn off your network connection, then click any Approve/Reject/Suspend button.
+- **Expected result:** an `alert()` with a graceful error message appears, the button returns to its normal (non-"Saving…") state, and the row's status is unchanged in the UI.
+- Attempt the same action twice in quick succession (double-click) → confirm it doesn't error or leave the row in an inconsistent state.
+
+## Refresh Tests
+- After performing at least one approve, one reject, and one suspend/re-activate across the 3 tabs, refresh the whole page.
+- **Expected result:** every status change persists exactly as left — nothing reverts to the old mock data or a stale status.
+
+## Navigation Tests
+- Click through all 8 sidebar tabs.
+- **Expected result:** Dashboard, Customer Database, Partner Verification, and Industry Certification all show real, mutually consistent data (badge counts match list contents); every other tab behaves exactly as it did before Module 20.
+
+---
+
+Once all of these pass, your app is verified end-to-end through Module 20.
+Ready for **Module 21 — Pickup Management** whenever you are.

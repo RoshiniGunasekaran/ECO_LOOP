@@ -1,5 +1,18 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../context/DatabaseContext';
+import { useAdminDashboard } from '../hooks/useAdminDashboard';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
 import { 
   CustomerItem, PartnerItem, IndustryItem, PickupRequest, DIYProject, 
   PricingRate, WasteCategory 
@@ -12,16 +25,36 @@ import {
   ShieldAlert, LayoutDashboard, Users, Truck, Factory, History, Tag, 
   DollarSign, Award, BarChart3, Bell, User, CheckCircle, XCircle, Trash2, 
   Edit3, Play, Plus, RefreshCw, ChevronRight, Check, X, Search, Filter,
-  MapPin, Activity, Signal, Clock, FileText
+  MapPin, Activity, Signal, Clock, FileText, Loader2, UserPlus, PackagePlus, Hammer
 } from 'lucide-react';
 
 interface AdminModuleProps {
   onLogout: () => void;
 }
 
+const PIE_COLORS = ['#f43f5e', '#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b'];
+
 export default function AdminModule({ onLogout }: AdminModuleProps) {
-  // Active Sidebar Tabs
+  // Sidebar tabs
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+
+  // Real Supabase-backed platform overview stats + charts + activity feed
+  // (Module 19), and real Customer/Partner/Industry directories with
+  // approve/reject/suspend (Module 20) — powers the Dashboard, Customer
+  // Database, Partner Verification, and Industry Certification tabs.
+  // Every other tab below still reads/writes the DatabaseContext mock
+  // (Modules 21–25 scope).
+  const {
+    loading: dashboardLoading,
+    stats,
+    pickupsByDay,
+    categoryBreakdown,
+    recentActivity,
+    customers: realCustomers,
+    partners: realPartners,
+    industries: realIndustries,
+    updateUserStatus,
+  } = useAdminDashboard();
 
   // Active Shared States connected to Database Context
   const {
@@ -111,6 +144,21 @@ export default function AdminModule({ onLogout }: AdminModuleProps) {
     setIndustries(industries.map(i => i.id === industryId ? { ...i, status: action } : i));
     alert(`Industry corporate credentials successfully flagged as: ${action}`);
   };
+
+  // Module 20 — real approve/reject/suspend for Customer Database, Partner
+  // Verification, and Industry Certification. One shared handler since it's
+  // the same underlying `profiles.status` write for every role.
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const handleUpdateRealUserStatus = async (userId: string, status: 'Active' | 'Suspended' | 'Pending Approval') => {
+    setUpdatingUserId(userId);
+    const result = await updateUserStatus(userId, status);
+    setUpdatingUserId(null);
+    if (!result.success) alert(result.error ?? 'Could not update this account.');
+  };
+
+  const matchesUserSearch = (name: string, email: string) =>
+    name.toLowerCase().includes(userSearch.toLowerCase()) || email.toLowerCase().includes(userSearch.toLowerCase());
+  const matchesUserStatus = (status: string) => userFilter === 'All' || status === userFilter;
 
   const handleApproveDIY = (diyId: string, action: 'Approved' | 'Rejected') => {
     setDiyProjects(diyProjects.map(proj => {
@@ -235,9 +283,9 @@ export default function AdminModule({ onLogout }: AdminModuleProps) {
           {[
             { id: 'dashboard', label: 'Overview Metrics', icon: <LayoutDashboard className="w-4 h-4" /> },
             { id: 'customers', label: 'Customer Database', icon: <Users className="w-4 h-4" /> },
-            { id: 'partners', label: 'Partner Verification', icon: <Truck className="w-4 h-4" />, badge: partners.filter(p => p.status === 'Pending Approval').length },
+            { id: 'partners', label: 'Partner Verification', icon: <Truck className="w-4 h-4" />, badge: stats?.pendingPartnerApprovals ?? 0 },
             { id: 'partners-live', label: 'Live Partners & Logs', icon: <Play className="w-4 h-4 text-emerald-500 animate-pulse" />, badge: partners.filter(p => p.isOnline).length },
-            { id: 'industries', label: 'Industry Certification', icon: <Factory className="w-4 h-4" />, badge: industries.filter(i => i.status === 'Pending Approval').length },
+            { id: 'industries', label: 'Industry Certification', icon: <Factory className="w-4 h-4" />, badge: stats?.pendingIndustryApprovals ?? 0 },
             { id: 'pickups', label: 'Global Dispatch Log', icon: <History className="w-4 h-4" />, badge: pickups.filter(p => p.status === 'Pending').length },
             { id: 'pricing', label: 'Silo Pricing & Index', icon: <DollarSign className="w-4 h-4" /> },
             { id: 'diy-approvals', label: 'DIY Auditing', icon: <Award className="w-4 h-4 text-brand-300" />, badge: diyProjects.filter(d => d.status === 'Pending').length },
@@ -297,7 +345,7 @@ export default function AdminModule({ onLogout }: AdminModuleProps) {
       {/* CORE WORKSPACE */}
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-h-screen overflow-y-auto">
         
-        {/* DASHBOARD VIEW */}
+        {/* DASHBOARD VIEW — Module 19 */}
         {activeTab === 'dashboard' && (
           <div className="flex flex-col gap-6 animate-fade-in">
             <div>
@@ -305,79 +353,179 @@ export default function AdminModule({ onLogout }: AdminModuleProps) {
               <p className="text-xs text-slate-500 mt-1">Global ecosystem oversight across certified users, dispatch loops, and financial ledgers.</p>
             </div>
 
-            {/* QUICK STATS METRICS BENTO */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Total Customers</span>
-                <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{customers.length}</p>
-                  <button onClick={() => setActiveTab('customers')} className="text-[10px] text-rose-600 font-bold hover:underline flex items-center gap-1 mt-1">Manage Database <ChevronRight className="w-3 h-3" /></button>
-                </div>
+            {dashboardLoading || !stats ? (
+              <div className="py-20 flex flex-col items-center gap-3 text-slate-400">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <p className="text-xs font-semibold uppercase tracking-wider">Loading platform overview…</p>
               </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Pending Drivers</span>
-                <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-rose-600">{partners.filter(p => p.status === 'Pending Approval').length}</p>
-                  <button onClick={() => setActiveTab('partners')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Review Profiles <ChevronRight className="w-3 h-3" /></button>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Unassigned Pickups</span>
-                <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{pickups.filter(p => p.status === 'Pending').length}</p>
-                  <button onClick={() => setActiveTab('pickups')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Manual Allocation <ChevronRight className="w-3 h-3" /></button>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Unverified DIY Crafts</span>
-                <div className="mt-2">
-                  <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{diyProjects.filter(d => d.status === 'Pending').length}</p>
-                  <button onClick={() => setActiveTab('diy-approvals')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Perform Auditing <ChevronRight className="w-3 h-3" /></button>
-                </div>
-              </div>
-            </div>
-
-            {/* AUDIT SKELETON */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* DIY AUDITING CARD MINI */}
-              <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">DIY Craft Audit Queue</h3>
-                <div className="flex flex-col gap-2">
-                  {diyProjects.filter(d => d.status === 'Pending').map((p) => (
-                    <div key={p.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between text-xs gap-3">
-                      <div>
-                        <h4 className="font-bold text-slate-800">{p.projectName}</h4>
-                        <p className="text-[10px] text-slate-500 truncate max-w-[200px]">By: {p.customerName}</p>
-                      </div>
-                      <button onClick={() => setActiveTab('diy-approvals')} className="bg-rose-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg">
-                        Audit
-                      </button>
+            ) : (
+              <>
+                {/* QUICK STATS METRICS BENTO */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Total Customers</span>
+                    <div className="mt-2">
+                      <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{stats.totalCustomers}</p>
+                      <button onClick={() => setActiveTab('customers')} className="text-[10px] text-rose-600 font-bold hover:underline flex items-center gap-1 mt-1">Manage Database <ChevronRight className="w-3 h-3" /></button>
                     </div>
-                  ))}
-                  {diyProjects.filter(d => d.status === 'Pending').length === 0 && (
-                    <div className="py-8 text-center text-slate-400 text-xs">All DIY submissions successfully audited!</div>
-                  )}
-                </div>
-              </div>
-
-              {/* REVENUE OVERVIEW METRICS */}
-              <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-3">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Platform Revenue Log</h3>
-                <div className="p-4 bg-slate-900 text-white rounded-xl flex items-center justify-between text-xs font-mono">
-                  <div>
-                    <span className="block text-[8px] text-rose-400 font-bold uppercase">All-time collection revenue</span>
-                    <strong className="text-lg font-bold font-mono">₹18,45,290.00</strong>
                   </div>
-                  <span className="text-[10px] text-slate-400">Escrow Audited</span>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Pending Drivers</span>
+                    <div className="mt-2">
+                      <p className="text-xl sm:text-2xl font-bold font-mono text-rose-600">{stats.pendingPartnerApprovals}</p>
+                      <button onClick={() => setActiveTab('partners')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Review Profiles <ChevronRight className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Unassigned Pickups</span>
+                    <div className="mt-2">
+                      <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{stats.unassignedPickups}</p>
+                      <button onClick={() => setActiveTab('pickups')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Manual Allocation <ChevronRight className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col justify-between h-28">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Unverified DIY Crafts</span>
+                    <div className="mt-2">
+                      <p className="text-xl sm:text-2xl font-bold font-mono text-slate-900">{stats.pendingDIYSubmissions}</p>
+                      <button onClick={() => setActiveTab('diy-approvals')} className="text-[10px] text-slate-500 font-bold hover:underline flex items-center gap-1 mt-1">Perform Auditing <ChevronRight className="w-3 h-3" /></button>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-            </div>
+                {/* DASHBOARD CHARTS — Analytics & Charts (Tasks 19.2/19.3) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Pickup Requests — Last 7 Days</h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Real submission volume across the whole platform.</p>
+                    </div>
+                    <div className="h-44 w-full text-xs">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={pickupsByDay} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                          <YAxis tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px' }}
+                            labelStyle={{ color: '#94a3b8', fontWeight: 'bold' }}
+                          />
+                          <Bar dataKey="count" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={22} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Waste Category Breakdown</h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5">All-time pickup requests by category, platform-wide.</p>
+                    </div>
+                    <div className="h-44 flex items-center justify-around gap-2 text-xs">
+                      {categoryBreakdown.length === 0 ? (
+                        <div className="w-full h-full flex items-center justify-center text-center text-[10px] text-slate-400 px-4">
+                          No pickups yet — this chart fills in once the first pickup is recorded.
+                        </div>
+                      ) : (
+                        <>
+                          <div className="w-1/2 h-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={categoryBreakdown} dataKey="count" nameKey="category" cx="50%" cy="50%" innerRadius={30} outerRadius={55}>
+                                  {categoryBreakdown.map((entry, index) => (
+                                    <Cell key={entry.category} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip contentStyle={{ background: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '11px' }} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="flex flex-col gap-1.5 text-[10px]">
+                            {categoryBreakdown.slice(0, 6).map((entry, index) => (
+                              <div key={entry.category} className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} />
+                                <span className="text-slate-600 font-semibold">{entry.category}</span>
+                                <span className="text-slate-400 font-mono">({entry.count})</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* AUDIT SKELETON */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                  {/* DIY AUDITING CARD MINI */}
+                  <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">DIY Craft Audit Queue</h3>
+                    <div className="flex flex-col gap-2">
+                      {diyProjects.filter(d => d.status === 'Pending').map((p) => (
+                        <div key={p.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between text-xs gap-3">
+                          <div>
+                            <h4 className="font-bold text-slate-800">{p.projectName}</h4>
+                            <p className="text-[10px] text-slate-500 truncate max-w-[200px]">By: {p.customerName}</p>
+                          </div>
+                          <button onClick={() => setActiveTab('diy-approvals')} className="bg-rose-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg">
+                            Audit
+                          </button>
+                        </div>
+                      ))}
+                      {diyProjects.filter(d => d.status === 'Pending').length === 0 && (
+                        <div className="py-8 text-center text-slate-400 text-xs">All DIY submissions successfully audited!</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* REVENUE OVERVIEW METRICS */}
+                  <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-3">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Platform Revenue Log</h3>
+                    <div className="p-4 bg-slate-900 text-white rounded-xl flex items-center justify-between text-xs font-mono">
+                      <div>
+                        <span className="block text-[8px] text-rose-400 font-bold uppercase">All-time collection revenue</span>
+                        <strong className="text-lg font-bold font-mono">₹{stats.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                      </div>
+                      <span className="text-[10px] text-slate-400">Sum of Paid pickups</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 font-mono mt-1">
+                      <p>PARTNERS: <b className="text-slate-800">{stats.totalPartners}</b></p>
+                      <p>INDUSTRIES: <b className="text-slate-800">{stats.totalIndustries}</b></p>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* RECENT PLATFORM ACTIVITY — Activity logs (Task 19.4) */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-3">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-rose-500" /> Recent Platform Activity
+                  </h3>
+                  <div className="flex flex-col gap-2">
+                    {recentActivity.map((event) => (
+                      <div key={event.id} className="flex items-center gap-3 text-xs p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
+                        <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                          event.type === 'signup' ? 'bg-brand-50 text-brand-600' : event.type === 'pickup' ? 'bg-amber-50 text-amber-600' : 'bg-purple-50 text-purple-600'
+                        }`}>
+                          {event.type === 'signup' && <UserPlus className="w-3.5 h-3.5" />}
+                          {event.type === 'pickup' && <PackagePlus className="w-3.5 h-3.5" />}
+                          {event.type === 'diy' && <Hammer className="w-3.5 h-3.5" />}
+                        </span>
+                        <span className="text-slate-700 font-medium flex-1">{event.message}</span>
+                        <span className="text-[9px] text-slate-400 font-mono shrink-0">{new Date(event.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    ))}
+                    {recentActivity.length === 0 && (
+                      <div className="py-8 text-center text-slate-400 text-xs">No platform activity recorded yet.</div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
-        {/* CUSTOMER DATABASE TAB */}
+        {/* CUSTOMER DATABASE TAB — Module 20 */}
         {activeTab === 'customers' && (
           <div className="flex flex-col gap-4 animate-fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -385,129 +533,219 @@ export default function AdminModule({ onLogout }: AdminModuleProps) {
                 <h1 className="text-xl font-display font-extrabold text-slate-900">Customer Account Directories</h1>
                 <p className="text-xs text-slate-500">View balances, accumulated points, and toggle account bans.</p>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {customers.map((c) => (
-                <div key={c.id} className="bg-white rounded-2xl border border-slate-100 p-4 shadow-xs flex flex-col justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <img className="w-10 h-10 rounded-full object-cover border border-slate-100 shadow-inner" src={c.profilePic} alt="customer" />
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">{c.name}</h4>
-                      <p className="text-[9px] text-slate-400 font-mono">{c.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono bg-slate-50 p-2 rounded-xl">
-                    <div>
-                      <span className="block text-slate-400 text-[8px] uppercase">Balance</span>
-                      <strong className="text-slate-700">₹{c.walletBalance.toFixed(2)}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-slate-400 text-[8px] uppercase">Points</span>
-                      <strong className="text-slate-700">{c.rewardPoints} XP</strong>
-                    </div>
-                    <div>
-                      <span className="block text-slate-400 text-[8px] uppercase">Status</span>
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold ${c.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{c.status}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-1.5 justify-end mt-1 border-t border-slate-50 pt-2">
-                    <button 
-                      onClick={() => handleToggleUserStatus(c.id, 'customer')}
-                      className={`text-[9px] font-bold px-3 py-1.5 rounded-lg transition ${
-                        c.status === 'Active' ? 'bg-rose-50 border border-rose-100 text-rose-700' : 'bg-slate-900 text-white'
-                      }`}
-                    >
-                      {c.status === 'Active' ? 'Suspend Account' : 'Re-Activate'}
-                    </button>
-                  </div>
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input type="text" placeholder="Search name or email…" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs w-56 focus:outline-none focus:ring-2 focus:ring-rose-500" />
                 </div>
-              ))}
+                <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
+                  <option value="All">All Statuses</option>
+                  <option value="Active">Active</option>
+                  <option value="Suspended">Suspended</option>
+                </select>
+              </div>
             </div>
+
+            {dashboardLoading ? (
+              <div className="py-16 flex flex-col items-center gap-3 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <p className="text-xs font-semibold uppercase tracking-wider">Loading customer directory…</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {realCustomers.filter((c) => matchesUserSearch(c.name, c.email) && matchesUserStatus(c.status)).map((c) => (
+                  <div key={c.id} className="bg-white rounded-2xl border border-slate-100 p-4 shadow-xs flex flex-col justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <img className="w-10 h-10 rounded-full object-cover border border-slate-100 shadow-inner" src={c.profilePic || 'https://api.dicebear.com/7.x/initials/svg?seed=' + encodeURIComponent(c.name)} alt="customer" />
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800">{c.name}</h4>
+                        <p className="text-[9px] text-slate-400 font-mono">{c.email}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-mono bg-slate-50 p-2 rounded-xl">
+                      <div>
+                        <span className="block text-slate-400 text-[8px] uppercase">Balance</span>
+                        <strong className="text-slate-700">₹{c.walletBalance.toFixed(2)}</strong>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400 text-[8px] uppercase">Points</span>
+                        <strong className="text-slate-700">{c.rewardPoints} XP</strong>
+                      </div>
+                      <div>
+                        <span className="block text-slate-400 text-[8px] uppercase">Status</span>
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold ${c.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{c.status}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-1.5 justify-end mt-1 border-t border-slate-50 pt-2">
+                      <button
+                        onClick={() => handleUpdateRealUserStatus(c.id, c.status === 'Active' ? 'Suspended' : 'Active')}
+                        disabled={updatingUserId === c.id}
+                        className={`text-[9px] font-bold px-3 py-1.5 rounded-lg transition disabled:opacity-60 ${
+                          c.status === 'Active' ? 'bg-rose-50 border border-rose-100 text-rose-700' : 'bg-slate-900 text-white'
+                        }`}
+                      >
+                        {updatingUserId === c.id ? 'Saving…' : c.status === 'Active' ? 'Suspend Account' : 'Re-Activate'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {realCustomers.length === 0 && (
+                  <div className="col-span-3 py-12 text-center text-slate-400 text-xs">No customer accounts yet.</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* PARTNERS QUEUE */}
+        {/* PARTNERS QUEUE — Module 20 */}
         {activeTab === 'partners' && (
           <div className="flex flex-col gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-xl font-display font-extrabold text-slate-900">Partner driver Verification Queue</h1>
-              <p className="text-xs text-slate-500">Audit driving licenses and background national identity numbers before driver dispatch clearances.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {partners.map((p) => (
-                <div key={p.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <img className="w-10 h-10 rounded-full object-cover" src={p.profilePic} alt="partner" />
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-800">{p.name}</h4>
-                        <p className="text-[10px] text-slate-400 font-mono">{p.vehicleType} ({p.vehicleNumber})</p>
-                      </div>
-                    </div>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase font-mono ${
-                      p.status === 'Approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
-                    }`}>{p.status}</span>
-                  </div>
-
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-[10px] font-mono leading-relaxed flex flex-col gap-1">
-                    <p>DRIVER LICENSE ID: {p.drivingLicense}</p>
-                    <p>NATIONAL ID CODE: {p.aadhaarNumber}</p>
-                  </div>
-
-                  {p.status === 'Pending Approval' && (
-                    <div className="flex gap-2 justify-end mt-1 border-t border-slate-50 pt-3">
-                      <button onClick={() => handleApprovePartner(p.id, 'Suspended')} className="bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition">Reject Profile</button>
-                      <button onClick={() => handleApprovePartner(p.id, 'Approved')} className="bg-rose-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-xl transition shadow-xs">Approve and Dispatch</button>
-                    </div>
-                  )}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="text-xl font-display font-extrabold text-slate-900">Partner driver Verification Queue</h1>
+                <p className="text-xs text-slate-500">Audit driving licenses and background national identity numbers before driver dispatch clearances.</p>
+              </div>
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input type="text" placeholder="Search name or email…" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs w-56 focus:outline-none focus:ring-2 focus:ring-rose-500" />
                 </div>
-              ))}
+                <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
+                  <option value="All">All Statuses</option>
+                  <option value="Active">Approved</option>
+                  <option value="Pending Approval">Pending Approval</option>
+                  <option value="Suspended">Suspended</option>
+                </select>
+              </div>
             </div>
+
+            {dashboardLoading ? (
+              <div className="py-16 flex flex-col items-center gap-3 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <p className="text-xs font-semibold uppercase tracking-wider">Loading partner directory…</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {realPartners.filter((p) => matchesUserSearch(p.name, p.email) && matchesUserStatus(p.status)).map((p) => (
+                  <div key={p.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img className="w-10 h-10 rounded-full object-cover" src={p.profilePic || 'https://api.dicebear.com/7.x/initials/svg?seed=' + encodeURIComponent(p.name)} alt="partner" />
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800">{p.name}</h4>
+                          <p className="text-[10px] text-slate-400 font-mono">{p.vehicleType ?? '—'} ({p.vehicleNumber ?? '—'})</p>
+                        </div>
+                      </div>
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase font-mono ${
+                        p.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : p.status === 'Suspended' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                      }`}>{p.status === 'Active' ? 'Approved' : p.status}</span>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-[10px] font-mono leading-relaxed flex flex-col gap-1">
+                      <p>DRIVER LICENSE ID: {p.drivingLicense ?? '—'}</p>
+                      <p>NATIONAL ID CODE: {p.aadhaarNumber ?? '—'}</p>
+                    </div>
+
+                    {p.status === 'Pending Approval' && (
+                      <div className="flex gap-2 justify-end mt-1 border-t border-slate-50 pt-3">
+                        <button onClick={() => handleUpdateRealUserStatus(p.id, 'Suspended')} disabled={updatingUserId === p.id} className="bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition disabled:opacity-60">Reject Profile</button>
+                        <button onClick={() => handleUpdateRealUserStatus(p.id, 'Active')} disabled={updatingUserId === p.id} className="bg-rose-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-xl transition shadow-xs disabled:opacity-60">{updatingUserId === p.id ? 'Saving…' : 'Approve and Dispatch'}</button>
+                      </div>
+                    )}
+                    {p.status === 'Active' && (
+                      <div className="flex gap-2 justify-end mt-1 border-t border-slate-50 pt-3">
+                        <button onClick={() => handleUpdateRealUserStatus(p.id, 'Suspended')} disabled={updatingUserId === p.id} className="bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition disabled:opacity-60">{updatingUserId === p.id ? 'Saving…' : 'Suspend Driver'}</button>
+                      </div>
+                    )}
+                    {p.status === 'Suspended' && (
+                      <div className="flex gap-2 justify-end mt-1 border-t border-slate-50 pt-3">
+                        <button onClick={() => handleUpdateRealUserStatus(p.id, 'Active')} disabled={updatingUserId === p.id} className="bg-slate-900 text-white text-[10px] font-bold px-4 py-1.5 rounded-xl transition disabled:opacity-60">{updatingUserId === p.id ? 'Saving…' : 'Re-Activate Driver'}</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {realPartners.length === 0 && (
+                  <div className="col-span-2 py-12 text-center text-slate-400 text-xs">No partner accounts yet.</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* INDUSTRIES TAB */}
+        {/* INDUSTRIES TAB — Module 20 */}
         {activeTab === 'industries' && (
           <div className="flex flex-col gap-4 animate-fade-in">
-            <div>
-              <h1 className="text-xl font-display font-extrabold text-slate-900">Industry certification management</h1>
-              <p className="text-xs text-slate-500">Audit corporate registration license IDs, GST numbers, and environmental recycling scopes.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {industries.map((ind) => (
-                <div key={ind.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col justify-between gap-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 text-2xl border">🏭</div>
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-800">{ind.companyName}</h4>
-                        <p className="text-[10px] text-slate-400 font-mono">{ind.industryType}</p>
-                      </div>
-                    </div>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase font-mono ${
-                      ind.status === 'Approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                    }`}>{ind.status}</span>
-                  </div>
-
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-[10px] font-mono flex flex-col gap-1">
-                    <p>GST REGISTER ID: {ind.gstNumber}</p>
-                    <p>FACILITY LOGISTICS: {ind.address}</p>
-                  </div>
-
-                  {ind.status === 'Pending Approval' && (
-                    <div className="flex gap-2 justify-end border-t border-slate-50 pt-3">
-                      <button onClick={() => handleApproveIndustry(ind.id, 'Suspended')} className="bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition">Reject Corporate Account</button>
-                      <button onClick={() => handleApproveIndustry(ind.id, 'Approved')} className="bg-rose-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-xl transition shadow-xs">Authorize Industry Certificate</button>
-                    </div>
-                  )}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="text-xl font-display font-extrabold text-slate-900">Industry certification management</h1>
+                <p className="text-xs text-slate-500">Audit corporate registration license IDs, GST numbers, and environmental recycling scopes.</p>
+              </div>
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input type="text" placeholder="Search name or email…" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs w-56 focus:outline-none focus:ring-2 focus:ring-rose-500" />
                 </div>
-              ))}
+                <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
+                  <option value="All">All Statuses</option>
+                  <option value="Active">Approved</option>
+                  <option value="Pending Approval">Pending Approval</option>
+                  <option value="Suspended">Suspended</option>
+                </select>
+              </div>
             </div>
+
+            {dashboardLoading ? (
+              <div className="py-16 flex flex-col items-center gap-3 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <p className="text-xs font-semibold uppercase tracking-wider">Loading industry directory…</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {realIndustries.filter((ind) => matchesUserSearch(ind.companyName, ind.email) && matchesUserStatus(ind.status)).map((ind) => (
+                  <div key={ind.id} className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col justify-between gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 text-2xl border">🏭</div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800">{ind.companyName}</h4>
+                          <p className="text-[10px] text-slate-400 font-mono">{ind.industryType ?? '—'}</p>
+                        </div>
+                      </div>
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase font-mono ${
+                        ind.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : ind.status === 'Suspended' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
+                      }`}>{ind.status === 'Active' ? 'Approved' : ind.status}</span>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-[10px] font-mono flex flex-col gap-1">
+                      <p>GST REGISTER ID: {ind.gstNumber ?? '—'}</p>
+                      <p>FACILITY LOGISTICS: {ind.address ?? '—'}</p>
+                    </div>
+
+                    {ind.status === 'Pending Approval' && (
+                      <div className="flex gap-2 justify-end border-t border-slate-50 pt-3">
+                        <button onClick={() => handleUpdateRealUserStatus(ind.id, 'Suspended')} disabled={updatingUserId === ind.id} className="bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition disabled:opacity-60">Reject Corporate Account</button>
+                        <button onClick={() => handleUpdateRealUserStatus(ind.id, 'Active')} disabled={updatingUserId === ind.id} className="bg-rose-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-xl transition shadow-xs disabled:opacity-60">{updatingUserId === ind.id ? 'Saving…' : 'Authorize Industry Certificate'}</button>
+                      </div>
+                    )}
+                    {ind.status === 'Active' && (
+                      <div className="flex gap-2 justify-end border-t border-slate-50 pt-3">
+                        <button onClick={() => handleUpdateRealUserStatus(ind.id, 'Suspended')} disabled={updatingUserId === ind.id} className="bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition disabled:opacity-60">{updatingUserId === ind.id ? 'Saving…' : 'Suspend Facility'}</button>
+                      </div>
+                    )}
+                    {ind.status === 'Suspended' && (
+                      <div className="flex gap-2 justify-end border-t border-slate-50 pt-3">
+                        <button onClick={() => handleUpdateRealUserStatus(ind.id, 'Active')} disabled={updatingUserId === ind.id} className="bg-slate-900 text-white text-[10px] font-bold px-4 py-1.5 rounded-xl transition disabled:opacity-60">{updatingUserId === ind.id ? 'Saving…' : 'Re-Activate Facility'}</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {realIndustries.length === 0 && (
+                  <div className="col-span-2 py-12 text-center text-slate-400 text-xs">No industry accounts yet.</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

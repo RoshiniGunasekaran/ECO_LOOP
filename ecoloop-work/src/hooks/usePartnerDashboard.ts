@@ -18,8 +18,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as partnerService from '../services/partnerService';
-import type { CompletePickupInput, PartnerPickup, RealPartnerProfile } from '../services/partnerService';
+import type {
+  CompletePickupInput,
+  PartnerPersonalDetailsInput,
+  PartnerPickup,
+  PartnerVehicleDetailsInput,
+  RealPartnerProfile,
+} from '../services/partnerService';
 import * as pickupService from '../services/pickupService';
+import { uploadProfilePicture } from '../services/profileService';
 
 interface UsePartnerDashboardResult {
   loading: boolean;
@@ -31,10 +38,16 @@ interface UsePartnerDashboardResult {
   toggleOnline: () => Promise<boolean>;
   acceptPickup: (pickupId: number) => Promise<boolean>;
   advanceStatus: (pickupId: number, nextStatus: 'In-Transit' | 'Arrived') => Promise<boolean>;
+  collectPickup: (pickupId: number, proofFiles: File[]) => Promise<boolean>;
   completePickup: (
     pickupId: number,
     input: CompletePickupInput
   ) => Promise<{ success: boolean; finalAmount: number; invoiceId: string } | null>;
+  confirmPayment: (pickupId: number) => Promise<boolean>;
+  updatePersonalDetails: (input: PartnerPersonalDetailsInput) => Promise<{ success: boolean; error?: string }>;
+  uploadProfilePhoto: (file: File) => Promise<string | null>;
+  updateVehicleDetails: (input: PartnerVehicleDetailsInput) => Promise<{ success: boolean; error?: string }>;
+  uploadDocument: (docType: 'license' | 'aadhaar', file: File) => Promise<string | null>;
 }
 
 export function usePartnerDashboard(): UsePartnerDashboardResult {
@@ -100,6 +113,16 @@ export function usePartnerDashboard(): UsePartnerDashboardResult {
     [load]
   );
 
+  const collectPickup = useCallback(
+    async (pickupId: number, proofFiles: File[]) => {
+      if (!userId) return false;
+      const ok = await partnerService.collectPickup(userId, pickupId, proofFiles);
+      if (ok) await load();
+      return ok;
+    },
+    [userId, load]
+  );
+
   const completePickup = useCallback(
     async (pickupId: number, input: CompletePickupInput) => {
       if (!userId) return null;
@@ -109,6 +132,55 @@ export function usePartnerDashboard(): UsePartnerDashboardResult {
       return result;
     },
     [userId, pricingRates, load]
+  );
+
+  const confirmPayment = useCallback(
+    async (pickupId: number) => {
+      const ok = await partnerService.confirmPayment(pickupId);
+      if (ok) await load();
+      return ok;
+    },
+    [load]
+  );
+
+  const updatePersonalDetails = useCallback(
+    async (input: PartnerPersonalDetailsInput) => {
+      if (!userId) return { success: false, error: 'Not signed in.' };
+      const result = await partnerService.updatePartnerPersonalDetails(userId, input);
+      if (result.success) await load();
+      return result;
+    },
+    [userId, load]
+  );
+
+  const uploadProfilePhoto = useCallback(
+    async (file: File) => {
+      if (!userId) return null;
+      const url = await uploadProfilePicture(userId, file);
+      if (url) await load();
+      return url;
+    },
+    [userId, load]
+  );
+
+  const updateVehicleDetails = useCallback(
+    async (input: PartnerVehicleDetailsInput) => {
+      if (!userId) return { success: false, error: 'Not signed in.' };
+      const result = await partnerService.updateVehicleDetails(userId, input);
+      if (result.success) await load();
+      return result;
+    },
+    [userId, load]
+  );
+
+  const uploadDocument = useCallback(
+    async (docType: 'license' | 'aadhaar', file: File) => {
+      if (!userId) return null;
+      const url = await partnerService.uploadPartnerDocument(userId, docType, file);
+      if (url) await load();
+      return url;
+    },
+    [userId, load]
   );
 
   return {
@@ -121,6 +193,12 @@ export function usePartnerDashboard(): UsePartnerDashboardResult {
     toggleOnline,
     acceptPickup,
     advanceStatus,
+    collectPickup,
     completePickup,
+    confirmPayment,
+    updatePersonalDetails,
+    uploadProfilePhoto,
+    updateVehicleDetails,
+    uploadDocument,
   };
 }

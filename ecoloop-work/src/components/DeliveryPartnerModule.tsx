@@ -1,11 +1,28 @@
-import React, { useState } from 'react';
-import { useDatabase } from '../context/DatabaseContext';
-import { PartnerItem, PickupRequest, Transaction, WasteCategory } from '../types';
-import { INITIAL_PARTNERS, INITIAL_PICKUP_REQUESTS, INITIAL_PRICING_RATES, WASTE_SUBCATEGORIES } from '../data';
-import { 
-  Truck, LayoutDashboard, Navigation, CheckCircle2, DollarSign, MapPin, 
-  User, Award, Star, ToggleLeft, ToggleRight, Search, Filter, Play, Check, 
-  Upload, AlertTriangle, ArrowRight, Bell, X, FileText, Smartphone, RefreshCw
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * ============================================================
+ *  DELIVERY PARTNER MODULE — Module 12 (Partner Dashboard)
+ * ============================================================
+ *  Every tab in this file now reads/writes real Supabase data
+ *  through `usePartnerDashboard` (see src/hooks/usePartnerDashboard.ts
+ *  and src/services/partnerService.ts). Nothing here reads from
+ *  the old `DatabaseContext` mock (`INITIAL_PARTNERS` /
+ *  `INITIAL_PICKUP_REQUESTS`) any more.
+ * ============================================================
+ */
+
+import React, { useEffect, useState } from 'react';
+import { usePartnerDashboard } from '../hooks/usePartnerDashboard';
+import { WASTE_SUBCATEGORIES } from '../data';
+import { downloadInvoice } from '../utils/invoice';
+import {
+  Truck, LayoutDashboard, Navigation, CheckCircle2, DollarSign, MapPin,
+  User, Award, Star, ToggleLeft, ToggleRight, Search, Filter, Play, Check,
+  Upload, AlertTriangle, ArrowRight, Bell, X, FileText, Smartphone, RefreshCw, Loader2
 } from 'lucide-react';
 
 interface DeliveryPartnerProps {
@@ -16,105 +33,184 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
   // Sidebar Tabs
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
-  // Active Shared States connected to Database Context
-  const { partner, setPartner, pickups, setPickups } = useDatabase();
-  
-  // Local list of ignored pickups in the session
-  const [ignoredPickupIds, setIgnoredPickupIds] = useState<string[]>([]);
-  
+  // Real Supabase-backed partner profile + pickups (Module 12)
+  const {
+    loading,
+    partner,
+    availablePickups,
+    myPickups,
+    toggleOnline,
+    acceptPickup,
+    advanceStatus,
+    collectPickup,
+    completePickup,
+    confirmPayment,
+    updatePersonalDetails,
+    uploadProfilePhoto,
+    updateVehicleDetails,
+    uploadDocument,
+  } = usePartnerDashboard();
+
+  // Local list of ignored pickups in this session only (never written to the DB —
+  // any other online partner must still see the request; see partnerService.ts header).
+  const [ignoredPickupIds, setIgnoredPickupIds] = useState<number[]>([]);
+
   // Weights / Billing Form States
-  const [billingPickup, setBillingPickup] = useState<PickupRequest | null>(null);
+  const [billingPickup, setBillingPickup] = useState<(typeof myPickups)[number] | null>(null);
   const [actualWeight, setActualWeight] = useState<number>(10);
-  const [verifiedCategory, setVerifiedCategory] = useState<WasteCategory>('Paper');
+  const [verifiedCategory, setVerifiedCategory] = useState<string>('Paper');
   const [billingRemarks, setBillingRemarks] = useState('');
   const [billingSuccess, setBillingSuccess] = useState(false);
+  const [billingSubmitting, setBillingSubmitting] = useState(false);
+  const [acceptingId, setAcceptingId] = useState<number | null>(null);
+  const [advancingId, setAdvancingId] = useState<number | null>(null);
 
-  // Active Map Trip state
-  const [currentTrip, setCurrentTrip] = useState<PickupRequest | null>(null);
+  // Collect / Upload Proof modal state (Module 13)
+  const [collectPickupTarget, setCollectPickupTarget] = useState<(typeof myPickups)[number] | null>(null);
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
+  const [collectSubmitting, setCollectSubmitting] = useState(false);
+  const [confirmingPaymentId, setConfirmingPaymentId] = useState<number | null>(null);
+
+  // Profile tab state (Module 15)
+  const [personalForm, setPersonalForm] = useState<{ fullName: string; phone: string } | null>(null);
+  const [personalSaving, setPersonalSaving] = useState(false);
+  const [personalMessage, setPersonalMessage] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const [vehicleForm, setVehicleForm] = useState<{
+    vehicleType: string;
+    vehicleNumber: string;
+    drivingLicense: string;
+    aadhaarNumber: string;
+  } | null>(null);
+  const [vehicleSaving, setVehicleSaving] = useState(false);
+  const [vehicleMessage, setVehicleMessage] = useState<string | null>(null);
+  const [uploadingDocType, setUploadingDocType] = useState<'license' | 'aadhaar' | null>(null);
+
+  useEffect(() => {
+    if (partner) {
+      setPersonalForm({ fullName: partner.name ?? '', phone: partner.phone ?? '' });
+      setVehicleForm({
+        vehicleType: partner.vehicleType ?? 'Electric Box Truck',
+        vehicleNumber: partner.vehicleNumber ?? '',
+        drivingLicense: partner.drivingLicense ?? '',
+        aadhaarNumber: partner.aadhaarNumber ?? '',
+      });
+    }
+  }, [partner]);
+
+  if (loading || !partner) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-400">
+          <Loader2 className="w-6 h-6 animate-spin" />
+          <p className="text-xs font-semibold uppercase tracking-wider">Loading partner dashboard…</p>
+        </div>
+      </div>
+    );
+  }
 
   // Computed helper stats
-  const assignedList = pickups.filter(p => p.partnerId === partner.id && p.status !== 'Completed' && p.status !== 'Cancelled');
-  const availableList = pickups.filter(p => p.status === 'Pending' && !ignoredPickupIds.includes(p.id));
+  const assignedList = myPickups.filter((p) => p.status !== 'Completed' && p.status !== 'Cancelled');
+  const completedList = myPickups.filter((p) => p.status === 'Completed');
+  const availableList = availablePickups.filter((p) => !ignoredPickupIds.includes(p.id));
 
   // Handlers
-  const handleToggleOnline = () => {
-    setPartner({
-      ...partner,
-      isOnline: !partner.isOnline
-    });
+  const handleToggleOnline = async () => {
+    await toggleOnline();
   };
 
-  const handleAcceptPickup = (pickupId: string) => {
-    setPickups(pickups.map(p => {
-      if (p.id === pickupId) {
-        return {
-          ...p,
-          status: 'Assigned',
-          partnerId: partner.id,
-          partnerName: partner.name,
-          partnerPhone: partner.phone
-        };
-      }
-      return p;
-    }));
-    
-    // Increment local driver stats
-    setPartner({
-      ...partner,
-      todayPickups: partner.todayPickups + 1
-    });
-
-    alert(`Pickup Accepted! Request moved to "My Assigned Trips" corridor.`);
+  const handleAcceptPickup = async (pickupId: number) => {
+    setAcceptingId(pickupId);
+    const ok = await acceptPickup(pickupId);
+    setAcceptingId(null);
+    if (!ok) {
+      alert('This pickup was just claimed by another partner. Refreshing the list…');
+    }
   };
 
-  const handleRejectPickup = (pickupId: string) => {
-    setIgnoredPickupIds(prev => [...prev, pickupId]);
+  const handleRejectPickup = (pickupId: number) => {
+    setIgnoredPickupIds((prev) => [...prev, pickupId]);
   };
 
-  const handleStepProgress = (pId: string, currentStatus: string) => {
-    let nextStatus: any = 'Assigned';
-    if (currentStatus === 'Assigned') nextStatus = 'In-Transit';
-    else if (currentStatus === 'In-Transit') nextStatus = 'Arrived';
-    else if (currentStatus === 'Arrived') {
-      // Open billing / weighing modal directly!
-      const activeP = pickups.find(p => p.id === pId)!;
-      setBillingPickup(activeP);
-      setActualWeight(activeP.estimatedWeight);
-      setVerifiedCategory(activeP.category);
+  const handleStepProgress = async (p: (typeof myPickups)[number]) => {
+    if (p.status === 'Assigned') {
+      setAdvancingId(p.id);
+      await advanceStatus(p.id, 'In-Transit');
+      setAdvancingId(null);
+    } else if (p.status === 'In-Transit') {
+      setAdvancingId(p.id);
+      await advanceStatus(p.id, 'Arrived');
+      setAdvancingId(null);
+    } else if (p.status === 'Arrived') {
+      // Open the Collect + Upload Proof modal (Module 13)
+      setCollectPickupTarget(p);
+      setProofFiles([]);
+    } else if (p.status === 'Collected') {
+      // Open billing / weighing modal
+      setBillingPickup(p);
+      setActualWeight(p.estimatedWeight);
+      setVerifiedCategory(p.category);
+      setBillingRemarks('');
+    }
+  };
+
+  const handleProofFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).slice(0, 3 - proofFiles.length);
+    setProofFiles((prev) => [...prev, ...files]);
+    e.target.value = '';
+  };
+
+  const handleRemoveProofFile = (index: number) => {
+    setProofFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleConfirmCollected = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!collectPickupTarget) return;
+
+    setCollectSubmitting(true);
+    const ok = await collectPickup(collectPickupTarget.id, proofFiles);
+    setCollectSubmitting(false);
+
+    if (!ok) {
+      alert('Could not mark this pickup as collected. Please try again.');
       return;
     }
 
-    setPickups(pickups.map(p => p.id === pId ? { ...p, status: nextStatus } : p));
+    setCollectPickupTarget(null);
+    setProofFiles([]);
   };
 
-  const handleGenerateInvoice = (e: React.FormEvent) => {
+  const handleConfirmPayment = async (pickupId: number) => {
+    setConfirmingPaymentId(pickupId);
+    const ok = await confirmPayment(pickupId);
+    setConfirmingPaymentId(null);
+    if (!ok) {
+      alert('Could not confirm payment. Please try again.');
+    }
+  };
+
+  const handleDownloadInvoice = (p: (typeof myPickups)[number]) => {
+    downloadInvoice(p, partner);
+  };
+
+  const handleGenerateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!billingPickup) return;
 
-    const rate = INITIAL_PRICING_RATES.find(pr => pr.category === verifiedCategory)?.pricePerKg || 0.10;
-    const finalVal = parseFloat((actualWeight * rate).toFixed(2));
-
-    setPickups(pickups.map(p => {
-      if (p.id === billingPickup.id) {
-        return {
-          ...p,
-          status: 'Completed',
-          actualWeight: actualWeight,
-          finalAmount: finalVal,
-          paymentStatus: 'Paid',
-          invoiceId: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`
-        };
-      }
-      return p;
-    }));
-
-    // Update partner aggregate balance
-    setPartner({
-      ...partner,
-      completedPickups: partner.completedPickups + 1,
-      earnings: partner.earnings + finalVal,
-      distanceTraveled: partner.distanceTraveled + 4.2
+    setBillingSubmitting(true);
+    const result = await completePickup(billingPickup.id, {
+      actualWeight,
+      verifiedCategory,
+      remarks: billingRemarks,
     });
+    setBillingSubmitting(false);
+
+    if (!result) {
+      alert('Could not complete this pickup. Please try again.');
+      return;
+    }
 
     setBillingSuccess(true);
     setTimeout(() => {
@@ -124,9 +220,52 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
     }, 2000);
   };
 
+  // Module 15 — Profile tab handlers
+  const handleSavePersonalDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!personalForm) return;
+    setPersonalMessage(null);
+    setPersonalSaving(true);
+    const result = await updatePersonalDetails(personalForm);
+    setPersonalSaving(false);
+    setPersonalMessage(result.success ? '✓ Personal details updated successfully.' : result.error ?? 'Could not save your changes.');
+    if (result.success) setTimeout(() => setPersonalMessage(null), 3000);
+  };
+
+  const handleProfilePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoUploading(true);
+    const url = await uploadProfilePhoto(file);
+    setPhotoUploading(false);
+    if (!url) alert('Could not upload your photo. Please try again.');
+  };
+
+  const handleSaveVehicleDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vehicleForm) return;
+    setVehicleMessage(null);
+    setVehicleSaving(true);
+    const result = await updateVehicleDetails(vehicleForm);
+    setVehicleSaving(false);
+    setVehicleMessage(result.success ? '✓ Vehicle & document details updated successfully.' : result.error ?? 'Could not save your changes.');
+    if (result.success) setTimeout(() => setVehicleMessage(null), 3000);
+  };
+
+  const handleDocumentFileSelected = async (docType: 'license' | 'aadhaar', e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingDocType(docType);
+    const url = await uploadDocument(docType, file);
+    setUploadingDocType(null);
+    if (!url) alert(`Could not upload your ${docType === 'license' ? 'driving license' : 'Aadhaar'} document. Please try again.`);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
-      
+
       {/* MOBILE HEADER */}
       <header className="md:hidden bg-brand-900 text-brand-50 border-b border-brand-800 px-4 py-3 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-1.5">
@@ -158,13 +297,13 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
         {/* Driver Online Control Card */}
         <div className="bg-brand-950 p-4 rounded-xl border border-brand-800 flex flex-col gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <img className="w-10 h-10 rounded-full object-cover border border-brand-700 shadow-sm" src={partner.profilePic} alt="driver" />
+            <img className="w-10 h-10 rounded-full object-cover border border-brand-700 shadow-sm" src={partner.profilePicUrl || 'https://api.dicebear.com/7.x/initials/svg?seed=' + encodeURIComponent(partner.name)} alt="driver" />
             <div className="min-w-0">
               <h4 className="text-xs font-bold truncate text-white">{partner.name}</h4>
-              <p className="text-[9px] text-brand-300 font-mono">{partner.vehicleNumber}</p>
+              <p className="text-[9px] text-brand-300 font-mono">{partner.vehicleNumber || 'No vehicle on file'}</p>
             </div>
           </div>
-          
+
           <div className="border-t border-brand-800 pt-2 flex items-center justify-between">
             <span className="text-[10px] text-brand-200 font-bold uppercase">Online Dispatch</span>
             <button onClick={handleToggleOnline} className="text-brand-400 transition hover:scale-105">
@@ -187,10 +326,10 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
               disabled={item.id === 'dispatcher' && !partner.isOnline}
               onClick={() => setActiveTab(item.id)}
               className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-left text-xs font-semibold transition ${
-                activeTab === item.id 
-                  ? 'bg-brand-800 text-white shadow-lg font-bold' 
-                  : item.id === 'dispatcher' && !partner.isOnline 
-                    ? 'text-brand-700 cursor-not-allowed opacity-40' 
+                activeTab === item.id
+                  ? 'bg-brand-800 text-white shadow-lg font-bold'
+                  : item.id === 'dispatcher' && !partner.isOnline
+                    ? 'text-brand-700 cursor-not-allowed opacity-40'
                     : 'text-brand-200 hover:text-white hover:bg-brand-800/60'
               }`}
             >
@@ -221,9 +360,9 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
           <LayoutDashboard className="w-4 h-4" />
           <span className="text-[9px]">Dash</span>
         </button>
-        <button 
+        <button
           disabled={!partner.isOnline}
-          onClick={() => setActiveTab('dispatcher')} 
+          onClick={() => setActiveTab('dispatcher')}
           className={`flex flex-col items-center gap-0.5 ${!partner.isOnline ? 'opacity-30' : activeTab === 'dispatcher' ? 'text-brand-600 font-bold' : 'text-slate-400'}`}
         >
           <Navigation className="w-4 h-4" />
@@ -231,7 +370,7 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
         </button>
         <button onClick={() => setActiveTab('assigned')} className={`flex flex-col items-center gap-0.5 ${activeTab === 'assigned' ? 'text-brand-600 font-bold' : 'text-slate-400'}`}>
           <CheckCircle2 className="w-4 h-4" />
-          <span className="text-[9px]">Triops ({assignedList.length})</span>
+          <span className="text-[9px]">Trips ({assignedList.length})</span>
         </button>
         <button onClick={() => setActiveTab('earnings')} className={`flex flex-col items-center gap-0.5 ${activeTab === 'earnings' ? 'text-brand-600 font-bold' : 'text-slate-400'}`}>
           <DollarSign className="w-4 h-4" />
@@ -241,14 +380,14 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
 
       {/* PRIMARY WORKSPACE */}
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-h-screen overflow-y-auto">
-        
+
         {/* PARTNER DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="flex flex-col gap-6 animate-fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <h1 className="text-xl sm:text-2xl font-display font-extrabold text-slate-900">Partner Driving Suite</h1>
-                <p className="text-xs text-slate-500 mt-1">Logged in: {partner.name} · Vehicle: {partner.vehicleType} ({partner.vehicleNumber})</p>
+                <p className="text-xs text-slate-500 mt-1">Logged in: {partner.name} · Vehicle: {partner.vehicleType || '—'} ({partner.vehicleNumber || '—'})</p>
               </div>
 
               <div className="flex items-center gap-3 bg-white border border-slate-100 p-2 rounded-xl shadow-xs">
@@ -306,7 +445,7 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
+
               {/* CURRENTLY ASSIGNED RUNS */}
               <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Assigned Active Collection Runs</h3>
@@ -368,7 +507,7 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
                 <div key={p.id} className="bg-white rounded-2xl border border-slate-100 p-4 shadow-xs flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold text-slate-400 font-mono">REQ ID: {p.id}</span>
-                    <span className="bg-indigo-50 text-indigo-700 text-[9px] font-bold px-2 py-0.5 rounded-full font-mono">~1.4 Miles away</span>
+                    <span className="bg-indigo-50 text-indigo-700 text-[9px] font-bold px-2 py-0.5 rounded-full font-mono">New request</span>
                   </div>
 
                   <div>
@@ -382,22 +521,28 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
 
                   <div className="border-t border-slate-50 pt-3 flex items-center justify-between">
                     <div>
-                      <p className="text-[9px] text-slate-400 font-bold uppercase font-mono">Estimated Driver Earnings</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase font-mono">Estimated Pickup Value</p>
                       <p className="text-sm font-bold text-brand-600 font-mono">₹{(p.estimatedAmount * 0.4).toFixed(2)}</p>
                     </div>
 
                     <div className="flex gap-1.5">
                       <button onClick={() => handleRejectPickup(p.id)} className="bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold text-[10px] px-3 py-2 rounded-xl transition">Ignore</button>
-                      <button onClick={() => handleAcceptPickup(p.id)} className="bg-brand-600 hover:bg-brand-700 text-white font-bold text-[10px] px-4 py-2 rounded-xl transition shadow-sm">Accept Trip</button>
+                      <button
+                        disabled={acceptingId === p.id}
+                        onClick={() => handleAcceptPickup(p.id)}
+                        className="bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-bold text-[10px] px-4 py-2 rounded-xl transition shadow-sm"
+                      >
+                        {acceptingId === p.id ? 'Accepting…' : 'Accept Trip'}
+                      </button>
                     </div>
                   </div>
                 </div>
               ))}
               {availableList.length === 0 && (
                 <div className="py-12 text-center bg-white border border-slate-100 rounded-2xl col-span-2">
-                  <RefreshCw className="w-8 h-8 text-slate-300 mx-auto mb-2 animate-spin" />
-                  <h3 className="text-xs font-bold text-slate-800">Searching dispatch loop...</h3>
-                  <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto">No unassigned recycling requests found nearby. Refreshing dynamically.</p>
+                  <RefreshCw className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <h3 className="text-xs font-bold text-slate-800">No pending requests right now</h3>
+                  <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto">No unassigned recycling requests found. Check back shortly, or tap Nearby Dispatcher again to refresh.</p>
                 </div>
               )}
             </div>
@@ -440,14 +585,23 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
                     </div>
                   </div>
 
+                  {p.images.length > 0 && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-semibold">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {p.images.length} proof photo{p.images.length > 1 ? 's' : ''} uploaded
+                    </div>
+                  )}
+
                   <div className="flex gap-2 justify-end mt-2">
-                    <button 
-                      onClick={() => handleStepProgress(p.id, p.status)}
-                      className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-2 px-5 rounded-xl transition flex items-center gap-1.5"
+                    <button
+                      disabled={advancingId === p.id}
+                      onClick={() => handleStepProgress(p)}
+                      className="bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-bold py-2 px-5 rounded-xl transition flex items-center gap-1.5"
                     >
                       {p.status === 'Assigned' && <><Play className="w-3.5 h-3.5" /> Start Trip</>}
                       {p.status === 'In-Transit' && <><Check className="w-3.5 h-3.5" /> Mark Arrived</>}
-                      {p.status === 'Arrived' && <><Check className="w-3.5 h-3.5" /> Start Weighing & Billing</>}
+                      {p.status === 'Arrived' && <><Upload className="w-3.5 h-3.5" /> Mark Collected & Upload Proof</>}
+                      {p.status === 'Collected' && <><Check className="w-3.5 h-3.5" /> Start Weighing & Billing</>}
                     </button>
                   </div>
                 </div>
@@ -463,12 +617,66 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
           </div>
         )}
 
+        {/* COLLECT + UPLOAD PROOF MODAL (Module 13) */}
+        {collectPickupTarget && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 flex flex-col gap-4 animate-scale-up relative">
+              <button onClick={() => setCollectPickupTarget(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-brand-600" />
+                <h3 className="font-display text-sm font-bold text-slate-950">Mark Collected & Upload Proof</h3>
+              </div>
+
+              <form onSubmit={handleConfirmCollected} className="flex flex-col gap-4">
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Confirm the recyclable materials for REQ ID: {collectPickupTarget.id} have been physically
+                  collected from {collectPickupTarget.customerName}. Attach up to 3 proof photos (optional but recommended).
+                </p>
+
+                <div className="flex flex-wrap gap-2">
+                  {proofFiles.map((file, index) => (
+                    <div key={index} className="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-200">
+                      <img src={URL.createObjectURL(file)} alt={`proof ${index + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveProofFile(index)}
+                        className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {proofFiles.length < 3 && (
+                    <label htmlFor="proof-photo-file" className="w-16 h-16 rounded-lg border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-400 cursor-pointer hover:border-brand-400 hover:text-brand-500 transition">
+                      <Upload className="w-4 h-4" />
+                    </label>
+                  )}
+                  <input
+                    id="proof-photo-file"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleProofFileChange}
+                    className="hidden"
+                    disabled={proofFiles.length >= 3}
+                  />
+                </div>
+
+                <button type="submit" disabled={collectSubmitting} className="bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs py-2.5 rounded-xl transition shadow-md">
+                  {collectSubmitting ? 'Saving…' : 'Confirm Collected'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* BILLING / WEIGHING MODAL */}
         {billingPickup && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl max-w-md w-full p-6 flex flex-col gap-4 animate-scale-up relative">
               <button onClick={() => setBillingPickup(null)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
-              
+
               <div className="flex items-center gap-2">
                 <Truck className="w-5 h-5 text-brand-600" />
                 <h3 className="font-display text-sm font-bold text-slate-950">Scale Weight verification</h3>
@@ -477,18 +685,19 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
               {billingSuccess ? (
                 <div className="py-8 text-center flex flex-col items-center gap-2">
                   <CheckCircle2 className="w-10 h-10 text-emerald-600 animate-pulse" />
-                  <h4 className="text-xs font-bold text-slate-800">Invoice Generated & Earnings Dispatched!</h4>
+                  <h4 className="text-xs font-bold text-slate-800">Invoice Generated!</h4>
+                  <p className="text-[10px] text-slate-500 max-w-[220px]">Payment is marked Pending until confirmed on the Earning Records tab.</p>
                 </div>
               ) : (
                 <form onSubmit={handleGenerateInvoice} className="flex flex-col gap-4">
                   <p className="text-xs text-slate-500 leading-relaxed">Perform a physical digital scale weight audit. Modify the final verified weight below to update customer pricing payouts.</p>
-                  
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Verified category</label>
-                      <select 
+                      <select
                         value={verifiedCategory}
-                        onChange={(e) => setVerifiedCategory(e.target.value as WasteCategory)}
+                        onChange={(e) => setVerifiedCategory(e.target.value)}
                         className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
                       >
                         {Object.keys(WASTE_SUBCATEGORIES).map((cat) => (
@@ -499,38 +708,30 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
 
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">Actual Scale Weight (Kg)</label>
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        required 
+                      <input
+                        type="number"
+                        step="0.1"
+                        required
                         value={actualWeight}
                         onChange={(e) => setActualWeight(parseFloat(e.target.value) || 0)}
-                        className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono font-bold text-slate-800" 
+                        className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono font-bold text-slate-800"
                       />
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase">Remarks/Notes (Optional)</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. materials dry, unsorted" 
+                    <input
+                      type="text"
+                      placeholder="e.g. materials dry, unsorted"
                       value={billingRemarks}
                       onChange={(e) => setBillingRemarks(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" 
+                      className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs"
                     />
                   </div>
 
-                  <div className="p-3 bg-brand-50 border border-brand-100 rounded-xl flex items-center justify-between text-xs">
-                    <div>
-                      <span className="block text-[8px] text-brand-700 uppercase font-bold tracking-wider font-mono">Calculated final payment</span>
-                      <strong className="text-brand-900 text-sm font-mono">₹{(actualWeight * (INITIAL_PRICING_RATES.find(pr => pr.category === verifiedCategory)?.pricePerKg || 0.10)).toFixed(2)}</strong>
-                    </div>
-                    <span className="bg-brand-100 text-brand-800 font-bold text-[9px] px-2 py-0.5 rounded-md font-mono">₹{(INITIAL_PRICING_RATES.find(pr => pr.category === verifiedCategory)?.pricePerKg || 0.10).toFixed(2)} / Kg</span>
-                  </div>
-
-                  <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 rounded-xl transition shadow-md">
-                    Complete weigh & Generate Bill
+                  <button type="submit" disabled={billingSubmitting} className="bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs py-2.5 rounded-xl transition shadow-md">
+                    {billingSubmitting ? 'Submitting…' : 'Complete weigh & Generate Bill'}
                   </button>
                 </form>
               )}
@@ -543,7 +744,7 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
           <div className="max-w-4xl mx-auto flex flex-col gap-6 animate-fade-in">
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xl flex flex-col gap-4">
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-widest font-mono">Earnings History Ledger</h2>
-              <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
                 <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
                   <span className="block text-[10px] text-slate-400 font-bold uppercase font-mono">All-Time Driver Pay</span>
                   <span className="block text-xl font-bold font-mono text-slate-800 mt-1">₹{partner.earnings.toFixed(2)}</span>
@@ -556,68 +757,174 @@ export default function DeliveryPartnerModule({ onLogout }: DeliveryPartnerProps
                   <span className="block text-[10px] text-slate-400 font-bold uppercase font-mono">Completed Runs</span>
                   <span className="block text-xl font-bold font-mono text-slate-800 mt-1">{partner.completedPickups} Runs</span>
                 </div>
+                <div className="p-3.5 bg-amber-50 border border-amber-100 rounded-xl">
+                  <span className="block text-[10px] text-amber-600 font-bold uppercase font-mono">Payment Pending</span>
+                  <span className="block text-xl font-bold font-mono text-amber-700 mt-1">
+                    {completedList.filter((p) => p.paymentStatus === 'Pending').length} Invoice{completedList.filter((p) => p.paymentStatus === 'Pending').length === 1 ? '' : 's'}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* List of past payouts */}
+            {/* List of past payouts / invoices */}
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs flex flex-col gap-4">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Completed Collection Ledger</h3>
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Completed Collection Ledger & Invoices</h3>
               <div className="flex flex-col gap-2">
-                {pickups.filter(p => p.partnerId === partner.id && p.status === 'Completed').map((p) => (
-                  <div key={p.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-800">REQ ID: {p.id} · {p.category}</span>
-                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">Verified load: {p.actualWeight} Kg · Date: {p.preferredDate}</p>
+                {completedList.map((p) => (
+                  <div key={p.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex flex-col gap-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-800">REQ ID: {p.id} · {p.category}</span>
+                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase font-mono ${p.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {p.paymentStatus === 'Paid' ? 'Paid' : 'Payment Pending'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">Verified load: {p.actualWeight ?? '—'} Kg · Date: {p.preferredDate} · Invoice: {p.invoiceId ?? '—'}</p>
+                      </div>
+                      <span className="font-mono font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg shrink-0">+₹{p.finalAmount?.toFixed(2) ?? '0.00'}</span>
                     </div>
-                    <span className="font-mono font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg">+₹{p.finalAmount?.toFixed(2)}</span>
+                    <div className="flex gap-2 justify-end border-t border-slate-100 pt-2">
+                      <button
+                        onClick={() => handleDownloadInvoice(p)}
+                        className="bg-white border border-slate-200 hover:border-slate-300 text-slate-600 font-bold text-[10px] px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                      >
+                        <FileText className="w-3 h-3" /> Download Invoice
+                      </button>
+                      {p.paymentStatus === 'Pending' && (
+                        <button
+                          disabled={confirmingPaymentId === p.id}
+                          onClick={() => handleConfirmPayment(p.id)}
+                          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3 h-3" /> {confirmingPaymentId === p.id ? 'Confirming…' : 'Confirm Payment'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
+                {completedList.length === 0 && (
+                  <p className="text-[11px] text-slate-400 text-center py-6">No completed pickups yet.</p>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {/* PROFILE TAB */}
-        {activeTab === 'profile' && (
-          <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-100 p-6 flex flex-col gap-6 animate-fade-in shadow-xl">
-            <div className="flex flex-col sm:flex-row items-center gap-5 border-b border-slate-100 pb-5">
-              <img className="w-16 h-16 rounded-full object-cover border-2 border-brand-500 shadow-md" src={partner.profilePic} alt="profile" />
-              <div className="text-center sm:text-left">
-                <h2 className="text-base font-bold text-slate-800">{partner.name}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{partner.email} · ID: {partner.id}</p>
-                <span className="inline-block bg-brand-50 text-brand-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full mt-1.5">★ 4.9 Premium Verified EcoLoop Driver</span>
+        {/* PROFILE TAB — Module 15 */}
+        {activeTab === 'profile' && personalForm && vehicleForm && (
+          <div className="max-w-2xl mx-auto flex flex-col gap-6 animate-fade-in">
+
+            {/* Identity card + photo upload */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center gap-5">
+                <div className="relative">
+                  <img className="w-16 h-16 rounded-full object-cover border-2 border-brand-500 shadow-md" src={partner.profilePicUrl || 'https://api.dicebear.com/7.x/initials/svg?seed=' + encodeURIComponent(partner.name)} alt="profile" />
+                  <label className="absolute -bottom-1 -right-1 bg-brand-600 hover:bg-brand-700 text-white rounded-full p-1.5 cursor-pointer shadow-md transition">
+                    <Upload className="w-3 h-3" />
+                    <input type="file" accept="image/*" className="hidden" onChange={handleProfilePhotoSelected} disabled={photoUploading} />
+                  </label>
+                </div>
+                <div className="text-center sm:text-left">
+                  <h2 className="text-base font-bold text-slate-800">{partner.name}</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{partner.email} · ID: {partner.displayCode ?? partner.id}</p>
+                  <span className="inline-block bg-brand-50 text-brand-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full mt-1.5">★ {partner.rating.toFixed(1)} · {partner.status}</span>
+                  {photoUploading && <p className="text-[10px] text-slate-400 mt-1">Uploading photo…</p>}
+                </div>
               </div>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); alert("Profile successfully updated in local state!"); }} className="flex flex-col gap-4">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Driver License & National ID credentials</h3>
+            {/* Personal details form (Task 15.1) */}
+            <form onSubmit={handleSavePersonalDetails} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xl flex flex-col gap-4">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Personal details</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">National ID Number</label>
-                  <input type="text" readOnly value={partner.aadhaarNumber} className="bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs cursor-not-allowed" />
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Full Name</label>
+                  <input type="text" required value={personalForm.fullName} onChange={(e) => setPersonalForm({ ...personalForm, fullName: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">Driving License ID</label>
-                  <input type="text" readOnly value={partner.drivingLicense} className="bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs cursor-not-allowed" />
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Phone Number</label>
+                  <input type="tel" value={personalForm.phone} onChange={(e) => setPersonalForm({ ...personalForm, phone: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div className="flex flex-col gap-1 col-span-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Email</label>
+                  <input type="email" readOnly disabled value={partner.email} className="bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs cursor-not-allowed text-slate-400" />
                 </div>
               </div>
+              {personalMessage && (
+                <p className={`text-[11px] font-semibold ${personalMessage.startsWith('✓') ? 'text-emerald-600' : 'text-red-600'}`}>{personalMessage}</p>
+              )}
+              <button type="submit" disabled={personalSaving} className="self-start bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-md">
+                {personalSaving ? 'Saving…' : 'Save Personal Details'}
+              </button>
+            </form>
 
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Vehicle logistics specs</h3>
+            {/* Vehicle + document numbers form (Task 15.2) */}
+            <form onSubmit={handleSaveVehicleDetails} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xl flex flex-col gap-4">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Vehicle & document credentials</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Vehicle Type</label>
-                  <input type="text" value={partner.vehicleType} onChange={(e) => setPartner({ ...partner, vehicleType: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <select value={vehicleForm.vehicleType} onChange={(e) => setVehicleForm({ ...vehicleForm, vehicleType: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option>Electric Box Truck</option>
+                    <option>Heavy Duty Van</option>
+                    <option>E-Cargo Bike</option>
+                  </select>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">License Plate Number</label>
-                  <input type="text" value={partner.vehicleNumber} onChange={(e) => setPartner({ ...partner, vehicleNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs" />
+                  <input type="text" value={vehicleForm.vehicleNumber} onChange={(e) => setVehicleForm({ ...vehicleForm, vehicleNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Driving License ID</label>
+                  <input type="text" value={vehicleForm.drivingLicense} onChange={(e) => setVehicleForm({ ...vehicleForm, drivingLicense: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">National ID (Aadhaar) Number</label>
+                  <input type="text" value={vehicleForm.aadhaarNumber} onChange={(e) => setVehicleForm({ ...vehicleForm, aadhaarNumber: e.target.value })} className="bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
               </div>
-
-              <button type="submit" className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-sm text-center mt-2">
-                Save Profile Specs
+              {vehicleMessage && (
+                <p className={`text-[11px] font-semibold ${vehicleMessage.startsWith('✓') ? 'text-emerald-600' : 'text-red-600'}`}>{vehicleMessage}</p>
+              )}
+              <button type="submit" disabled={vehicleSaving} className="self-start bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-md">
+                {vehicleSaving ? 'Saving…' : 'Save Vehicle & Document Details'}
               </button>
             </form>
+
+            {/* Document photo uploads (Task 15.3) */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xl flex flex-col gap-4">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono">Uploaded documents</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Driving License Photo</label>
+                  {partner.drivingLicenseDocUrl ? (
+                    <img src={partner.drivingLicenseDocUrl} alt="Driving license" className="w-full h-28 object-cover rounded-lg border border-slate-200" />
+                  ) : (
+                    <div className="w-full h-28 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400">No document uploaded</div>
+                  )}
+                  <label className="text-[10px] font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg px-3 py-2 text-center cursor-pointer transition">
+                    {uploadingDocType === 'license' ? 'Uploading…' : partner.drivingLicenseDocUrl ? 'Replace Photo' : 'Upload Photo'}
+                    <input type="file" accept="image/*" className="hidden" disabled={uploadingDocType !== null} onChange={(e) => handleDocumentFileSelected('license', e)} />
+                  </label>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Aadhaar (National ID) Photo</label>
+                  {partner.aadhaarDocUrl ? (
+                    <img src={partner.aadhaarDocUrl} alt="Aadhaar" className="w-full h-28 object-cover rounded-lg border border-slate-200" />
+                  ) : (
+                    <div className="w-full h-28 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400">No document uploaded</div>
+                  )}
+                  <label className="text-[10px] font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg px-3 py-2 text-center cursor-pointer transition">
+                    {uploadingDocType === 'aadhaar' ? 'Uploading…' : partner.aadhaarDocUrl ? 'Replace Photo' : 'Upload Photo'}
+                    <input type="file" accept="image/*" className="hidden" disabled={uploadingDocType !== null} onChange={(e) => handleDocumentFileSelected('aadhaar', e)} />
+                  </label>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 bg-slate-50 border border-slate-100 rounded-xl p-3 leading-relaxed">
+                Uploaded documents are visible to EcoLoop admins for verification. Re-uploading replaces what's shown here; the previous file is kept in storage but no longer linked to your profile.
+              </p>
+            </div>
           </div>
         )}
 
